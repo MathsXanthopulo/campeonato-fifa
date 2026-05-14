@@ -1,10 +1,11 @@
 "use client"
 
-import { FormEvent, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useTournament } from '@/lib/tournament-context'
 import { MAX_PLAYERS } from '@/lib/store'
+import { Player } from '@/lib/types'
 import { Navigation } from '@/components/tournament/navigation'
 import { TournamentBanner } from '@/components/tournament/tournament-banner'
 import { ChampionSection } from '@/components/tournament/champion-section'
@@ -22,10 +23,170 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Trophy, ChevronRight, UserPlus } from 'lucide-react'
+import { Trophy, ChevronRight, Pencil, Trash2, UserPlus } from 'lucide-react'
+
+interface RegisteredPlayerCardProps {
+  player: Player
+  players: Player[]
+  isChampion: boolean
+  canDeletePlayer: boolean
+  onUpdatePlayer: (playerId: string, updates: Partial<Player>) => void
+  onDeletePlayer: (playerId: string) => void
+  onFeedback: (message: string) => void
+}
+
+function RegisteredPlayerCard({
+  player,
+  players,
+  isChampion,
+  canDeletePlayer,
+  onUpdatePlayer,
+  onDeletePlayer,
+  onFeedback,
+}: RegisteredPlayerCardProps) {
+  const [isEditOpen, setIsEditOpen] = useState(false)
+  const [editName, setEditName] = useState(player.name)
+  const [editTeam, setEditTeam] = useState(player.team)
+  const [editError, setEditError] = useState('')
+
+  useEffect(() => {
+    if (!isEditOpen) {
+      return
+    }
+
+    setEditName(player.name)
+    setEditTeam(player.team)
+    setEditError('')
+  }, [isEditOpen, player])
+
+  const handleEditPlayer = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const trimmedName = editName.trim()
+    const trimmedTeam = editTeam.trim()
+
+    if (!trimmedName || !trimmedTeam) {
+      setEditError('Preencha o nome da pessoa e o nome do time.')
+      return
+    }
+
+    const duplicatedPlayer = players.some(
+      (existingPlayer) =>
+        existingPlayer.id !== player.id &&
+        existingPlayer.name.trim().toLocaleLowerCase() === trimmedName.toLocaleLowerCase()
+    )
+
+    if (duplicatedPlayer) {
+      setEditError('Ja existe outro inscrito com esse nome.')
+      return
+    }
+
+    onUpdatePlayer(player.id, {
+      name: trimmedName,
+      team: trimmedTeam,
+    })
+
+    setIsEditOpen(false)
+    onFeedback(`${trimmedName} foi atualizado com sucesso.`)
+  }
+
+  const handleDeletePlayer = () => {
+    if (!canDeletePlayer) {
+      return
+    }
+
+    const hasConfirmedDelete = window.confirm(`Deseja apagar o player ${player.name}?`)
+    if (!hasConfirmedDelete) {
+      return
+    }
+
+    onDeletePlayer(player.id)
+    onFeedback(`${player.name} foi removido da lista de inscritos.`)
+  }
+
+  return (
+    <PlayerCard
+      player={player}
+      size="md"
+      showOverall={false}
+      isChampion={isChampion}
+      actionSlot={
+        <>
+          <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+            <DialogTrigger asChild>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="secondary"
+                className="h-7 w-7 rounded-full bg-black/60 text-white hover:bg-black/80"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </Button>
+            </DialogTrigger>
+
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Editar inscrito</DialogTitle>
+                <DialogDescription>
+                  Atualize o nome da pessoa e o time desse player.
+                </DialogDescription>
+              </DialogHeader>
+
+              <form onSubmit={handleEditPlayer} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor={`edit-player-name-${player.id}`}>Nome/Apelido</Label>
+                  <Input
+                    id={`edit-player-name-${player.id}`}
+                    value={editName}
+                    onChange={(event) => setEditName(event.target.value)}
+                    placeholder="Ex.: Mateus"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor={`edit-player-team-${player.id}`}>Nome do time</Label>
+                  <Input
+                    id={`edit-player-team-${player.id}`}
+                    value={editTeam}
+                    onChange={(event) => setEditTeam(event.target.value)}
+                    placeholder="Ex.: Real Madrid"
+                  />
+                </div>
+
+                {editError && (
+                  <p className="text-sm text-destructive">{editError}</p>
+                )}
+
+                <DialogFooter>
+                  <Button type="submit">Salvar alteracoes</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="destructive"
+            disabled={!canDeletePlayer}
+            onClick={handleDeletePlayer}
+            className="h-7 w-7 rounded-full"
+            title={
+              canDeletePlayer
+                ? 'Apagar inscrito'
+                : 'A exclusao fica disponivel somente antes do torneio iniciar'
+            }
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </>
+      }
+    />
+  )
+}
 
 export default function HomePage() {
-  const { state, isLoading, getPlayer, addPlayer } = useTournament()
+  const { state, isLoading, getPlayer, addPlayer, updatePlayer, deletePlayer } = useTournament()
   const [isRegisterOpen, setIsRegisterOpen] = useState(false)
   const [playerName, setPlayerName] = useState('')
   const [teamName, setTeamName] = useState('')
@@ -50,6 +211,7 @@ export default function HomePage() {
   const isRegistrationFull = players.length >= MAX_PLAYERS
   const isRegistrationClosed = tournament.status !== 'setup'
   const canRegister = !isRegistrationFull && !isRegistrationClosed
+  const canDeletePlayer = tournament.status === 'setup'
 
   const registerButtonLabel = isRegistrationFull
     ? 'Vagas encerradas'
@@ -234,6 +396,12 @@ export default function HomePage() {
               <span className="text-sm text-muted-foreground">{players.length} participantes</span>
             </div>
 
+            {!canDeletePlayer && sortedPlayers.length > 0 && (
+              <p className="mb-4 text-sm text-muted-foreground">
+                A edicao continua liberada, mas apagar player fica disponivel somente antes do torneio iniciar.
+              </p>
+            )}
+
             {sortedPlayers.length === 0 ? (
               <div className="glass rounded-xl p-8 text-center text-muted-foreground">
                 <p>Ninguem se cadastrou ainda.</p>
@@ -259,11 +427,14 @@ export default function HomePage() {
                       visible: { opacity: 1, y: 0 },
                     }}
                   >
-                    <PlayerCard
+                    <RegisteredPlayerCard
                       player={player}
-                      size="md"
-                      showOverall={false}
                       isChampion={player.id === tournament.championId}
+                      players={players}
+                      canDeletePlayer={canDeletePlayer}
+                      onUpdatePlayer={updatePlayer}
+                      onDeletePlayer={deletePlayer}
+                      onFeedback={setFeedbackMessage}
                     />
                   </motion.div>
                 ))}

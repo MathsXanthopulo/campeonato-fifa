@@ -1,5 +1,6 @@
 "use client"
 
+import { ReactNode } from 'react'
 import { motion } from 'framer-motion'
 import { Player } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -10,6 +11,7 @@ interface PlayerCardProps {
   isChampion?: boolean
   showOverall?: boolean
   className?: string
+  actionSlot?: ReactNode
 }
 
 export function PlayerCard({ 
@@ -17,7 +19,8 @@ export function PlayerCard({
   size = 'md', 
   isChampion = false,
   showOverall = true,
-  className 
+  className,
+  actionSlot
 }: PlayerCardProps) {
   const sizeClasses = {
     sm: 'w-16 h-22',
@@ -88,6 +91,12 @@ export function PlayerCard({
           player.overall >= 90 && 'text-glow-gold'
         )}>
           {player.overall}
+        </div>
+      )}
+
+      {actionSlot && (
+        <div className="absolute top-1 right-1 z-10 flex items-center gap-1">
+          {actionSlot}
         </div>
       )}
       

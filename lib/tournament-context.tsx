@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react'
 import { TournamentState, Player, Match } from './types'
 import * as store from './store'
 import {
@@ -45,6 +45,16 @@ function hasMeaningfulState(state: TournamentState) {
 export function TournamentProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<TournamentState | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const syncQueueRef = useRef<Promise<void>>(Promise.resolve())
+
+  const syncState = useCallback((nextState: TournamentState) => {
+    syncQueueRef.current = syncQueueRef.current
+      .catch(() => undefined)
+      .then(() => persistTournamentStateToSupabase(nextState))
+      .catch((error) => {
+        console.error('Nao foi possivel sincronizar o torneio com o Supabase.', error)
+      })
+  }, [])
 
   useEffect(() => {
     let isMounted = true
@@ -73,9 +83,7 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
         setIsLoading(false)
 
         if (shouldPromoteLocalState) {
-          void persistTournamentStateToSupabase(initialState).catch((error) => {
-            console.error('Nao foi possivel migrar o estado local para o Supabase.', error)
-          })
+          syncState(initialState)
         }
       } catch (error) {
         console.error('Nao foi possivel carregar o torneio do Supabase.', error)
@@ -94,13 +102,7 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
     return () => {
       isMounted = false
     }
-  }, [])
-
-  const syncState = useCallback((nextState: TournamentState) => {
-    void persistTournamentStateToSupabase(nextState).catch((error) => {
-      console.error('Nao foi possivel sincronizar o torneio com o Supabase.', error)
-    })
-  }, [])
+  }, [syncState])
 
   const applyStateUpdate = useCallback((updater: (currentState: TournamentState) => TournamentState) => {
     setState((previousState) => {

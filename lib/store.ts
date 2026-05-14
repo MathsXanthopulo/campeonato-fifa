@@ -342,9 +342,17 @@ export function updatePlayer(state: TournamentState, playerId: string, updates: 
 }
 
 export function deletePlayer(state: TournamentState, playerId: string): TournamentState {
+  const newPlayers = state.players.filter(p => p.id !== playerId)
+
   const newState = {
     ...state,
-    players: state.players.filter(p => p.id !== playerId),
+    tournament: {
+      ...state.tournament,
+      championId: state.tournament.championId === playerId ? null : state.tournament.championId,
+      liveMatchId: state.tournament.status === 'setup' ? null : state.tournament.liveMatchId,
+    },
+    players: newPlayers,
+    matches: state.tournament.status === 'setup' ? generateBracket(newPlayers) : state.matches,
   }
   saveState(newState)
   return newState

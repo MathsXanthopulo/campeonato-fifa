@@ -347,7 +347,7 @@ export async function persistTournamentStateToSupabase(state: TournamentState): 
   if (playerRows.length > 0) {
     const { error: insertPlayersError } = await supabase
       .from('tournament_players')
-      .insert(playerRows)
+      .upsert(playerRows, { onConflict: 'id' })
 
     if (insertPlayersError) {
       throw insertPlayersError
@@ -358,7 +358,7 @@ export async function persistTournamentStateToSupabase(state: TournamentState): 
   if (matchRows.length > 0) {
     const { error: insertMatchesError } = await supabase
       .from('matches')
-      .insert(matchRows)
+      .upsert(matchRows, { onConflict: 'id' })
 
     if (insertMatchesError) {
       throw insertMatchesError
