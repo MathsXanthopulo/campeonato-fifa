@@ -3,6 +3,10 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react'
 import { TournamentState, Player, Match } from './types'
 import * as store from './store'
+import {
+  fetchTournamentStateFromSupabase,
+  persistTournamentStateToSupabase,
+} from './tournament-repository'
 
 interface TournamentContextType {
   state: TournamentState | null
@@ -21,50 +25,130 @@ interface TournamentContextType {
 
 const TournamentContext = createContext<TournamentContextType | undefined>(undefined)
 
+function hasMeaningfulState(state: TournamentState) {
+  return (
+    state.players.length > 0 ||
+    state.tournament.status !== 'setup' ||
+    Boolean(state.tournament.championId) ||
+    Boolean(state.tournament.liveMatchId) ||
+    state.matches.some(
+      (match) =>
+        Boolean(match.player1Id) ||
+        Boolean(match.player2Id) ||
+        Boolean(match.winnerId) ||
+        match.score1 !== null ||
+        match.score2 !== null
+    )
+  )
+}
+
 export function TournamentProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<TournamentState | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    setState(store.getInitialState())
-    setIsLoading(false)
+    let isMounted = true
+
+    async function loadTournamentState() {
+      const localState = store.getInitialState()
+
+      try {
+        const remoteState = await fetchTournamentStateFromSupabase()
+
+        if (!isMounted) {
+          return
+        }
+
+        if (!remoteState) {
+          setState(localState)
+          setIsLoading(false)
+          return
+        }
+
+        const shouldPromoteLocalState = hasMeaningfulState(localState) && !hasMeaningfulState(remoteState)
+        const initialState = shouldPromoteLocalState ? localState : remoteState
+
+        setState(initialState)
+        store.saveState(initialState)
+        setIsLoading(false)
+
+        if (shouldPromoteLocalState) {
+          void persistTournamentStateToSupabase(initialState).catch((error) => {
+            console.error('Nao foi possivel migrar o estado local para o Supabase.', error)
+          })
+        }
+      } catch (error) {
+        console.error('Nao foi possivel carregar o torneio do Supabase.', error)
+
+        if (!isMounted) {
+          return
+        }
+
+        setState(localState)
+        setIsLoading(false)
+      }
+    }
+
+    void loadTournamentState()
+
+    return () => {
+      isMounted = false
+    }
   }, [])
+
+  const syncState = useCallback((nextState: TournamentState) => {
+    void persistTournamentStateToSupabase(nextState).catch((error) => {
+      console.error('Nao foi possivel sincronizar o torneio com o Supabase.', error)
+    })
+  }, [])
+
+  const applyStateUpdate = useCallback((updater: (currentState: TournamentState) => TournamentState) => {
+    setState((previousState) => {
+      if (!previousState) {
+        return previousState
+      }
+
+      const nextState = updater(previousState)
+      syncState(nextState)
+      return nextState
+    })
+  }, [syncState])
 
   const updateMatch = useCallback((matchId: string, updates: Partial<Match>) => {
-    setState(prev => prev ? store.updateMatch(prev, matchId, updates) : prev)
-  }, [])
+    applyStateUpdate((currentState) => store.updateMatch(currentState, matchId, updates))
+  }, [applyStateUpdate])
 
   const setLiveMatch = useCallback((matchId: string | null) => {
-    setState(prev => prev ? store.setLiveMatch(prev, matchId) : prev)
-  }, [])
+    applyStateUpdate((currentState) => store.setLiveMatch(currentState, matchId))
+  }, [applyStateUpdate])
 
   const addPlayer = useCallback((player: Omit<Player, 'id' | 'createdAt'>) => {
-    setState(prev => prev ? store.addPlayer(prev, player) : prev)
-  }, [])
+    applyStateUpdate((currentState) => store.addPlayer(currentState, player))
+  }, [applyStateUpdate])
 
   const updatePlayer = useCallback((playerId: string, updates: Partial<Player>) => {
-    setState(prev => prev ? store.updatePlayer(prev, playerId, updates) : prev)
-  }, [])
+    applyStateUpdate((currentState) => store.updatePlayer(currentState, playerId, updates))
+  }, [applyStateUpdate])
 
   const deletePlayer = useCallback((playerId: string) => {
-    setState(prev => prev ? store.deletePlayer(prev, playerId) : prev)
-  }, [])
+    applyStateUpdate((currentState) => store.deletePlayer(currentState, playerId))
+  }, [applyStateUpdate])
 
   const resetTournament = useCallback(() => {
-    setState(prev => prev ? store.resetTournament(prev) : prev)
-  }, [])
+    applyStateUpdate((currentState) => store.resetTournament(currentState))
+  }, [applyStateUpdate])
 
   const drawBracket = useCallback(() => {
-    setState(prev => prev ? store.drawBracket(prev) : prev)
-  }, [])
+    applyStateUpdate((currentState) => store.drawBracket(currentState))
+  }, [applyStateUpdate])
 
   const startTournament = useCallback(() => {
-    setState(prev => prev ? store.startTournament(prev) : prev)
-  }, [])
+    applyStateUpdate((currentState) => store.startTournament(currentState))
+  }, [applyStateUpdate])
 
   const setChampion = useCallback((playerId: string | null) => {
-    setState(prev => prev ? store.setChampion(prev, playerId) : prev)
-  }, [])
+    applyStateUpdate((currentState) => store.setChampion(currentState, playerId))
+  }, [applyStateUpdate])
 
   const getPlayer = useCallback((playerId: string | null) => {
     if (!playerId || !state) return undefined
