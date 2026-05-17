@@ -11,10 +11,6 @@ __v0_jsx-dev-runtime.ts
 .env.local
 .env*.local
 
-# Supabase (SQL manual no dashboard; credenciais no .env)
-supabase-schema.sql
-supabase-migration-groups.sql
-
 # Common ignores
 node_modules
 .next/

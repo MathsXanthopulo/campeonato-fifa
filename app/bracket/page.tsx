@@ -1,17 +1,14 @@
 "use client"
 
-import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { useTournament } from '@/lib/tournament-context'
 import { Navigation } from '@/components/tournament/navigation'
 import { Bracket } from '@/components/tournament/bracket'
 import { Loading } from '@/components/tournament/loading'
-import { Button } from '@/components/ui/button'
-import { Shuffle, Trophy } from 'lucide-react'
+import { Trophy } from 'lucide-react'
 
 export default function BracketPage() {
-  const { state, isLoading, drawBracket } = useTournament()
-  const [drawMessage, setDrawMessage] = useState('')
+  const { state, isLoading } = useTournament()
   
   if (isLoading || !state) {
     return (
@@ -31,13 +28,7 @@ export default function BracketPage() {
 
   const completedMatches = displayMatches.filter((m) => m.status === 'completed').length
   const totalMatches = displayMatches.length
-  const canDrawMatches = tournament.status === 'setup' && players.length >= 2
 
-  const handleDrawBracket = () => {
-    drawBracket()
-    setDrawMessage('Confrontos sorteados com sucesso.')
-  }
-  
   return (
     <>
       <Navigation />
@@ -59,27 +50,16 @@ export default function BracketPage() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <p className="text-sm text-muted-foreground">
-                {tournament.mode === 'groups_knockout'
-                  ? isGroupsPhase
-                    ? 'Sorteie os grupos antes de iniciar. O mata-mata sera gerado automaticamente quando todas as partidas de grupos forem finalizadas.'
-                    : 'Mata-mata gerado automaticamente com base na classificacao dos grupos.'
-                  : 'Sorteie os confrontos antes de iniciar o torneio.'}
-              </p>
+            <p className="text-sm text-muted-foreground">
+              {tournament.mode === 'groups_knockout'
+                ? isGroupsPhase
+                  ? 'Fase de grupos. O mata-mata sera gerado automaticamente quando todas as partidas forem finalizadas.'
+                  : 'Mata-mata com base na classificacao dos grupos.'
+                : 'Visualizacao do mata-mata.'}
+              {totalMatches === 0 &&
+                ' A chave ainda nao foi sorteada — aguarde o organizador configurar o campeonato.'}
+            </p>
 
-              <Button onClick={handleDrawBracket} disabled={!canDrawMatches}>
-                <Shuffle className="w-4 h-4 mr-2" />
-                {tournament.mode === 'groups_knockout' ? 'Sortear grupos' : 'Sortear confrontos'}
-              </Button>
-            </div>
-
-            {drawMessage && (
-              <div className="mt-4 rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400">
-                {drawMessage}
-              </div>
-            )}
-            
             {/* Progress bar */}
             <div className="glass rounded-xl p-4 mt-4">
               <div className="flex items-center justify-between mb-2">

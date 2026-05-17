@@ -1,5 +1,7 @@
 import { Match } from '../types'
 import { QualificationPlan } from './types'
+import { buildQualifiedEntries } from './group-knockout-seeding'
+import type { QualifiedEntry } from './group-knockout-seeding'
 
 export interface GroupStanding {
   playerId: string
@@ -92,6 +94,7 @@ export interface QualificationResult {
   groupWinners: string[]
   others: string[]
   all: string[]
+  entries: QualifiedEntry[]
 }
 
 export function computeQualificationResult(
@@ -145,10 +148,13 @@ export function computeQualificationResult(
       .forEach((entry) => others.push(entry.playerId))
   }
 
+  const entries = buildQualifiedEntries(groups, matches, plan)
+
   return {
     groupWinners,
     others,
-    all: [...groupWinners, ...others],
+    all: entries.map((e) => e.playerId),
+    entries,
   }
 }
 

@@ -1,10 +1,30 @@
 import { QualificationPlan } from './types'
 import { nextPowerOfTwo } from './utils'
 
+/** 4 grupos com 3 jogadores cada (12 no total). */
+export function isFourGroupsOfThree(groupSizes: number[]): boolean {
+  return groupSizes.length === 4 && groupSizes.every((size) => size === 3)
+}
+
+export function fourGroupsOfThreeQualificationPlan(groupSizes: number[]): QualificationPlan {
+  return {
+    groupCount: 4,
+    groupSizes,
+    qualifyPerGroup: 2,
+    bestSecondPlaces: 0,
+    bestThirdPlaces: 0,
+    targetKnockoutSize: 8,
+    description:
+      '4 grupos de 3: 1º e 2º de cada grupo classificam → quartas de final (8 jogadores).',
+  }
+}
+
 /** Distribui N jogadores em grupos com diferença máxima de 1. */
 export function planGroupSizes(playerCount: number): number[] {
   if (playerCount <= 0) return []
   if (playerCount <= 6) return [playerCount]
+  /** Torneio padrão: 4 grupos × 3 jogadores. */
+  if (playerCount === 12) return [3, 3, 3, 3]
 
   let bestSizes: number[] = [playerCount]
   let bestScore = Number.POSITIVE_INFINITY
@@ -31,11 +51,13 @@ export function planGroupSizes(playerCount: number): number[] {
       sizes.length * defaultQualifyPerGroup(playerCount, sizes) +
       extraBestPlaces(playerCount, sizes)
 
+    const fourByThree = sizes.length === 4 && sizes.every((size) => size === 3)
     const score =
       spread * 10 +
       Math.abs(estimatedQualified - knockoutTarget) * 4 +
-      Math.abs(avgSize - 4) * 2 +
-      groupCount * 0.5
+      (fourByThree ? 0 : Math.abs(avgSize - 4) * 2) +
+      groupCount * 0.5 -
+      (fourByThree ? 6 : 0)
 
     if (score < bestScore) {
       bestScore = score
@@ -51,6 +73,7 @@ function defaultQualifyPerGroup(playerCount: number, groupSizes: number[]): numb
     if (playerCount <= 4) return 2
     return Math.min(4, playerCount)
   }
+  if (isFourGroupsOfThree(groupSizes)) return 2
   if (playerCount <= 10) return 1
   if (playerCount <= 16) return 2
   return 1
@@ -117,16 +140,8 @@ export function buildQualificationPlan(playerCount: number, groupSizes: number[]
     }
   }
 
-  if (playerCount === 12 && groupCount === 4) {
-    return {
-      groupCount: 4,
-      groupSizes,
-      qualifyPerGroup: 2,
-      bestSecondPlaces: 0,
-      bestThirdPlaces: 0,
-      targetKnockoutSize: 8,
-      description: '4 grupos de 3: 2 classificados por grupo → quartas.',
-    }
+  if (isFourGroupsOfThree(groupSizes)) {
+    return fourGroupsOfThreeQualificationPlan(groupSizes)
   }
 
   if (playerCount === 16 && groupCount === 4) {

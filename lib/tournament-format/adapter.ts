@@ -67,22 +67,16 @@ export function formatToAppState(format: TournamentFormatResult): {
     if (seen.has(match.id)) continue
     seen.add(match.id)
 
-    const isBye = match.isBye
-    const byeWinner = isBye ? match.player1Id ?? match.player2Id : null
-
     matches.push(
       toAppMatch({
         id: match.id,
         player1Id: match.player1Id,
         player2Id: match.player2Id,
-        round: match.round === 0 ? 1 : match.round,
+        round: match.round,
         position: match.position,
-        status: isBye ? 'completed' : match.status,
+        status: match.isBye ? 'pending' : match.status,
         phase: 'knockout',
         groupId: null,
-        winnerId: byeWinner,
-        score1: isBye && match.player1Id ? 1 : null,
-        score2: isBye && match.player2Id ? 1 : null,
       })
     )
   }

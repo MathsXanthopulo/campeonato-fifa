@@ -1,6 +1,7 @@
 "use client"
 
 import { formatToAppState, generateTournamentFormat } from './tournament-format'
+import { buildQualificationPlan } from './tournament-format/group-plan'
 import { buildKnockoutFromGroupQualification } from './tournament-format/knockout'
 import {
   areGroupMatchesComplete,
@@ -102,8 +103,14 @@ function isLegacyDemoState(state: TournamentState): boolean {
   )
 }
 
+function isPreliminaryKnockoutMatch(match: Match): boolean {
+  return match.phase === 'knockout' && match.id.startsWith('ko-prelim-')
+}
+
 function getMaxKnockoutRound(matches: Match[]): number {
-  const knockout = matches.filter((m) => m.phase === 'knockout')
+  const knockout = matches.filter(
+    (m) => m.phase === 'knockout' && !isPreliminaryKnockoutMatch(m) && m.round >= 1
+  )
   if (knockout.length === 0) return 0
   return Math.max(...knockout.map((m) => m.round))
 }
@@ -304,26 +311,18 @@ export function advanceToKnockout(state: TournamentState): TournamentState {
     return state
   }
 
-  const format = generateTournamentFormat({
-    players: state.players,
-    mode: 'groups_knockout',
-    shuffle: false,
-  })
-
-  if (!format.qualification) {
-    return state
-  }
+  const groupSizes = state.groups.map((group) => group.playerIds.length)
+  const qualificationPlan = buildQualificationPlan(state.players.length, groupSizes)
 
   const qualification = computeQualificationResult(
     state.groups,
     state.matches,
-    format.qualification
+    qualificationPlan
   )
 
   const knockoutFormat = buildKnockoutFromGroupQualification(
-    qualification.groupWinners,
-    qualification.others,
-    format.qualification.targetKnockoutSize
+    qualification,
+    qualificationPlan.targetKnockoutSize
   )
 
   const { matches: knockoutMatches } = formatToAppState({
@@ -331,7 +330,7 @@ export function advanceToKnockout(state: TournamentState): TournamentState {
     playerCount: qualification.all.length,
     groups: [],
     qualified: qualification.all,
-    qualification: format.qualification,
+    qualification: qualificationPlan,
     knockout: knockoutFormat,
   })
 
@@ -426,8 +425,14 @@ export function deletePlayer(state: TournamentState, playerId: string): Tourname
   return newState
 }
 
+/** Encerra o torneio atual e prepara um novo ciclo: mantém inscritos, zera placares e chave. */
 export function resetTournament(state: TournamentState): TournamentState {
+  if (state.players.length < 2) {
+    return state
+  }
+
   const { groups, matches } = buildMatchesForState(state.players, state.tournament.mode)
+
   const newState: TournamentState = {
     tournament: {
       ...state.tournament,
@@ -438,7 +443,16 @@ export function resetTournament(state: TournamentState): TournamentState {
     },
     players: state.players,
     groups,
-    matches,
+    matches: matches.map((match) => ({
+      ...match,
+      score1: null,
+      score2: null,
+      wentToPenalties: false,
+      penaltyScore1: null,
+      penaltyScore2: null,
+      winnerId: null,
+      status: 'pending' as const,
+    })),
   }
   saveState(newState)
   return newState

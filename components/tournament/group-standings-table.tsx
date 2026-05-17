@@ -18,6 +18,8 @@ interface GroupStandingsTableProps {
   standings: GroupStanding[]
   getPlayer: (id: string) => Player | undefined
   highlightLeaderPrivilege?: boolean
+  /** Destaca as N primeiras posições como vagas no mata-mata (ex.: 2 = 1º e 2º). */
+  qualifySlots?: number
 }
 
 export function GroupStandingsTable({
@@ -25,6 +27,7 @@ export function GroupStandingsTable({
   standings,
   getPlayer,
   highlightLeaderPrivilege = false,
+  qualifySlots = 0,
 }: GroupStandingsTableProps) {
   return (
     <div className="rounded-xl border border-border/50 bg-black/40 overflow-hidden">
@@ -36,6 +39,11 @@ export function GroupStandingsTable({
           <span className="text-[10px] uppercase tracking-wide text-[#f4d588]/90 flex items-center gap-1">
             <Crown className="w-3 h-3" />
             1º → quartas
+          </span>
+        )}
+        {!highlightLeaderPrivilege && qualifySlots >= 2 && (
+          <span className="text-[10px] uppercase tracking-wide text-[#f4d588]/90">
+            1º e 2º → mata-mata
           </span>
         )}
       </div>
@@ -75,11 +83,15 @@ export function GroupStandingsTable({
           {standings.map((row, index) => {
             const player = getPlayer(row.playerId)
             const isLeader = index === 0
+            const isQualified = qualifySlots > 0 && index < qualifySlots
 
             return (
               <TableRow
                 key={row.playerId}
-                className={cn('border-border/30', isLeader && 'bg-[#c6972c]/10')}
+                className={cn(
+                  'border-border/30',
+                  (isLeader || isQualified) && 'bg-[#c6972c]/10'
+                )}
               >
                 <TableCell className="text-center font-medium text-muted-foreground">
                   {index + 1}
@@ -93,7 +105,7 @@ export function GroupStandingsTable({
                       <p
                         className={cn(
                           'font-medium truncate',
-                          isLeader && 'text-[#f4d588]'
+                          isQualified && 'text-[#f4d588]'
                         )}
                       >
                         {player?.name ?? 'Jogador'}

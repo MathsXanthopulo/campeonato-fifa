@@ -5,7 +5,6 @@ import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useTournament } from '@/lib/tournament-context'
 import { getBracketSize } from '@/lib/bracket'
-import { generateTournamentFormat } from '@/lib/tournament-format'
 import { Player } from '@/lib/types'
 import { Navigation } from '@/components/tournament/navigation'
 import { TournamentBanner } from '@/components/tournament/tournament-banner'
@@ -194,7 +193,6 @@ export default function HomePage() {
     addPlayer,
     updatePlayer,
     deletePlayer,
-    setTournamentMode,
   } = useTournament()
   const [isRegisterOpen, setIsRegisterOpen] = useState(false)
   const [playerName, setPlayerName] = useState('')
@@ -206,15 +204,6 @@ export default function HomePage() {
     [state]
   )
 
-  const formatPreview = useMemo(() => {
-    if (!state || state.players.length < 2) return null
-    return generateTournamentFormat({
-      players: state.players,
-      mode: state.tournament.mode,
-      shuffle: false,
-    })
-  }, [state])
-  
   if (isLoading || !state) {
     return (
       <main className="min-h-screen pb-20 md:pt-24">
@@ -230,7 +219,6 @@ export default function HomePage() {
   const canRegister = !isRegistrationClosed
   const bracketSlots = getBracketSize(players.length)
   const canDeletePlayer = tournament.status === 'setup'
-
   const registerButtonLabel = isRegistrationClosed
     ? 'Inscricoes fechadas'
     : 'Cadastrar agora'
@@ -288,54 +276,6 @@ export default function HomePage() {
           
           {champion && (
             <ChampionSection champion={champion} />
-          )}
-
-          {tournament.status === 'setup' && (
-            <motion.section
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="glass rounded-xl p-6 space-y-4"
-            >
-              <motion.div>
-                <h3 className="font-semibold">Modalidade do campeonato</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  O formato da chave e dos grupos e montado automaticamente conforme os inscritos.
-                </p>
-              </motion.div>
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant={tournament.mode === 'knockout' ? 'default' : 'outline'}
-                  onClick={() => setTournamentMode('knockout')}
-                >
-                  Apenas mata-mata
-                </Button>
-                <Button
-                  type="button"
-                  variant={tournament.mode === 'groups_knockout' ? 'default' : 'outline'}
-                  onClick={() => setTournamentMode('groups_knockout')}
-                >
-                  Grupos + mata-mata
-                </Button>
-              </div>
-
-              {formatPreview && (
-                <p className="text-xs text-muted-foreground rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
-                  {formatPreview.mode === 'knockout' ? (
-                    <>
-                      Mata-mata com {formatPreview.knockout.bracketSize} vagas
-                      {formatPreview.knockout.preliminaryMatches.length > 0 &&
-                        ` (${formatPreview.knockout.preliminaryMatches.length} preliminar(es))`}
-                      .
-                    </>
-                  ) : (
-                    formatPreview.qualification?.description ??
-                    'Fase de grupos seguida de mata-mata.'
-                  )}
-                </p>
-              )}
-            </motion.section>
           )}
 
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">

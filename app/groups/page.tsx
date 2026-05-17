@@ -112,7 +112,10 @@ export default function GroupsPage() {
                 </div>
               )}
 
-              <div className="glass rounded-xl px-4 py-3 text-sm text-muted-foreground space-y-1">
+              <motion.div className="glass rounded-xl px-4 py-3 text-sm text-muted-foreground space-y-1">
+                {formatMeta?.description && (
+                  <p className="text-[#f4d588] font-medium">{formatMeta.description}</p>
+                )}
                 <p>
                   <strong className="text-foreground">Pontuação:</strong> vitória 3 pts,
                   empate 1 pt para cada, derrota 0 pt.
@@ -127,7 +130,7 @@ export default function GroupsPage() {
                     quando houver vagas por bye no mata-mata.
                   </p>
                 )}
-              </div>
+              </motion.div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {groups.map((group) => {
@@ -147,6 +150,7 @@ export default function GroupsPage() {
                         standings={standings}
                         getPlayer={getPlayer}
                         highlightLeaderPrivilege={Boolean(showQuarterByeHint)}
+                        qualifySlots={formatMeta?.qualifyPerGroup ?? 0}
                       />
                     </motion.div>
                   )

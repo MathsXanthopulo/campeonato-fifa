@@ -2,7 +2,13 @@
 
 import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { getMaxRound, getRoundLabel, getRoundLabelShort } from '@/lib/bracket'
+import {
+  getMaxRound,
+  getRoundLabel,
+  getRoundLabelShort,
+  splitKnockoutMatches,
+} from '@/lib/bracket'
+import { getKnockoutRoundLabel } from '@/lib/tournament-format/knockout'
 import { Match, Player } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { ChevronLeft, ChevronRight, Trophy } from 'lucide-react'
@@ -153,16 +159,15 @@ export function Bracket({ matches, players, liveMatchId }: BracketProps) {
   const [activeRound, setActiveRound] = useState(1)
   const getPlayer = (id: string | null) => players.find(p => p.id === id)
 
-  const totalRounds = getMaxRound(matches)
+  const { preliminary, main } = useMemo(() => splitKnockoutMatches(matches), [matches])
+  const totalRounds = getMaxRound(main)
 
   const rounds = useMemo(() => {
     return Array.from({ length: totalRounds }, (_, index) => {
       const round = index + 1
-      return matches
-        .filter((m) => m.round === round)
-        .sort((a, b) => a.position - b.position)
+      return main.filter((m) => m.round === round)
     })
-  }, [matches, totalRounds])
+  }, [main, totalRounds])
 
   const activeMatches = rounds[activeRound - 1] || []
   const isFinalRound = activeRound === totalRounds && totalRounds > 0
@@ -170,11 +175,36 @@ export function Bracket({ matches, players, liveMatchId }: BracketProps) {
   const goToPrevRound = () => setActiveRound((r) => Math.max(1, r - 1))
   const goToNextRound = () => setActiveRound((r) => Math.min(totalRounds, r + 1))
 
-  if (totalRounds === 0) {
+  if (totalRounds === 0 && preliminary.length === 0) {
     return (
       <p className="text-center text-sm text-muted-foreground py-12">
         Cadastre pelo menos 2 jogadores e sorteie os confrontos para ver a chave.
       </p>
+    )
+  }
+
+  const renderPreliminaryColumn = (compact?: boolean) => {
+    if (preliminary.length === 0) return null
+
+    return (
+      <motion.div className={cn('flex flex-col items-center', compact && 'mb-6')}>
+        <h3 className="mb-3 text-center text-[9px] font-semibold uppercase tracking-[0.18em] text-[#b8933b]">
+          {getKnockoutRoundLabel('preliminary')}
+        </h3>
+        <div className="flex flex-col gap-3">
+          {preliminary.map((match) => (
+            <BracketMatch
+              key={match.id}
+              match={match}
+              player1={getPlayer(match.player1Id)}
+              player2={getPlayer(match.player2Id)}
+              isLive={match.id === liveMatchId}
+              compact={compact}
+              side="left"
+            />
+          ))}
+        </div>
+      </motion.div>
     )
   }
 
@@ -236,6 +266,10 @@ export function Bracket({ matches, players, liveMatchId }: BracketProps) {
         </p>
       </div>
       
+      {preliminary.length > 0 && activeRound === 1 && (
+        <motion.div className="px-2 mb-4">{renderPreliminaryColumn(true)}</motion.div>
+      )}
+
       <AnimatePresence mode="wait">
         <motion.div
           key={activeRound}
@@ -294,6 +328,7 @@ export function Bracket({ matches, players, liveMatchId }: BracketProps) {
         <motion.div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(247,211,127,0.08),transparent_45%)]" />
 
         <div className="relative flex items-center justify-center gap-3 lg:gap-4">
+          {renderPreliminaryColumn()}
           {rounds.map((roundMatches, index) => {
             const round = index + 1
             const isFinal = round === totalRounds

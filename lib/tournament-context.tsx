@@ -17,6 +17,7 @@ interface TournamentContextType {
   updatePlayer: (playerId: string, updates: Partial<Player>) => void
   deletePlayer: (playerId: string) => void
   resetTournament: () => void
+  restartTournament: () => void
   drawBracket: () => void
   startTournament: () => void
   setTournamentMode: (mode: TournamentMode) => void
@@ -54,7 +55,9 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
       .catch(() => undefined)
       .then(() => persistTournamentStateToSupabase(nextState))
       .catch((error) => {
-        console.error('Nao foi possivel sincronizar o torneio com o Supabase.', error)
+        const message =
+          error instanceof Error ? error.message : 'Erro desconhecido ao sincronizar com o Supabase.'
+        console.error('Nao foi possivel sincronizar o torneio com o Supabase.', message, error)
       })
   }, [])
 
@@ -146,6 +149,8 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
     applyStateUpdate((currentState) => store.resetTournament(currentState))
   }, [applyStateUpdate])
 
+  const restartTournament = resetTournament
+
   const drawBracket = useCallback(() => {
     applyStateUpdate((currentState) => store.drawBracket(currentState))
   }, [applyStateUpdate])
@@ -182,6 +187,7 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
         updatePlayer,
         deletePlayer,
         resetTournament,
+        restartTournament,
         drawBracket,
         startTournament,
         setTournamentMode,

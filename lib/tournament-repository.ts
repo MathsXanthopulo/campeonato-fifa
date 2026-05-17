@@ -294,6 +294,16 @@ function mapMatchRows(tournamentId: string, matches: Match[]): MatchRow[] {
   })
 }
 
+function formatSupabaseError(error: unknown): string {
+  if (error && typeof error === 'object') {
+    const row = error as { message?: string; details?: string; hint?: string; code?: string }
+    return [row.message, row.details, row.hint, row.code ? `(${row.code})` : '']
+      .filter(Boolean)
+      .join(' — ')
+  }
+  return String(error)
+}
+
 export async function persistTournamentStateToSupabase(state: TournamentState): Promise<void> {
   if (!isSupabaseConfigured || !supabase) {
     return
@@ -301,26 +311,39 @@ export async function persistTournamentStateToSupabase(state: TournamentState): 
 
   const now = new Date().toISOString()
   const tournamentId = state.tournament.id || DEFAULT_TOURNAMENT_ID
+  const maxPlayers = Math.max(2, getBracketSize(state.players.length))
 
-  const { error: upsertTournamentError } = await supabase
+  // Limpa FKs antes de apagar partidas/jogadores (evita violacao em live_match_id / champion).
+  const { error: clearRefsError } = await supabase
     .from('tournaments')
-    .upsert(
-      {
-        id: tournamentId,
-        slug: DEFAULT_TOURNAMENT_SLUG,
-        name: state.tournament.name,
-        status: state.tournament.status,
-        champion_player_id: null,
-        live_match_id: null,
-        max_players: Math.max(2, getBracketSize(state.players.length)),
-        created_at: state.tournament.createdAt,
-        updated_at: now,
-      },
-      { onConflict: 'id' }
-    )
+    .update({
+      champion_player_id: null,
+      live_match_id: null,
+      updated_at: now,
+    })
+    .eq('id', tournamentId)
+
+  if (clearRefsError) {
+    throw new Error(`Falha ao limpar referencias do torneio: ${formatSupabaseError(clearRefsError)}`)
+  }
+
+  const { error: upsertTournamentError } = await supabase.from('tournaments').upsert(
+    {
+      id: tournamentId,
+      slug: DEFAULT_TOURNAMENT_SLUG,
+      name: state.tournament.name,
+      status: state.tournament.status,
+      champion_player_id: null,
+      live_match_id: null,
+      max_players: maxPlayers,
+      created_at: state.tournament.createdAt,
+      updated_at: now,
+    },
+    { onConflict: 'id' }
+  )
 
   if (upsertTournamentError) {
-    throw upsertTournamentError
+    throw new Error(`Falha ao salvar torneio: ${formatSupabaseError(upsertTournamentError)}`)
   }
 
   const { error: deleteMatchesError } = await supabase
@@ -329,7 +352,7 @@ export async function persistTournamentStateToSupabase(state: TournamentState): 
     .eq('tournament_id', tournamentId)
 
   if (deleteMatchesError) {
-    throw deleteMatchesError
+    throw new Error(`Falha ao apagar partidas: ${formatSupabaseError(deleteMatchesError)}`)
   }
 
   const { error: deletePlayersError } = await supabase
@@ -338,7 +361,7 @@ export async function persistTournamentStateToSupabase(state: TournamentState): 
     .eq('tournament_id', tournamentId)
 
   if (deletePlayersError) {
-    throw deletePlayersError
+    throw new Error(`Falha ao apagar jogadores: ${formatSupabaseError(deletePlayersError)}`)
   }
 
   const playerRows = mapPlayerRows(tournamentId, state.players)
@@ -348,32 +371,55 @@ export async function persistTournamentStateToSupabase(state: TournamentState): 
       .upsert(playerRows, { onConflict: 'id' })
 
     if (insertPlayersError) {
-      throw insertPlayersError
+      throw new Error(`Falha ao salvar jogadores: ${formatSupabaseError(insertPlayersError)}`)
     }
   }
 
   const matchRows = mapMatchRows(tournamentId, state.matches)
   if (matchRows.length > 0) {
+    const slotKeys = new Set<string>()
+    for (const row of matchRows) {
+      const key = `${row.round}:${row.position}`
+      if (slotKeys.has(key)) {
+        throw new Error(
+          `Conflito de chave no banco (round/position duplicado): round=${row.round} position=${row.position}. Rode supabase/migrations/002 e 003.`
+        )
+      }
+      slotKeys.add(key)
+    }
+
     const { error: insertMatchesError } = await supabase.from('matches').insert(matchRows)
 
     if (insertMatchesError) {
-      throw insertMatchesError
+      throw new Error(`Falha ao salvar partidas: ${formatSupabaseError(insertMatchesError)}`)
     }
   }
+
+  const liveMatchId =
+    state.tournament.liveMatchId &&
+    matchRows.some((row) => row.id === state.tournament.liveMatchId)
+      ? state.tournament.liveMatchId
+      : null
+
+  const championId =
+    state.tournament.championId &&
+    playerRows.some((row) => row.id === state.tournament.championId)
+      ? state.tournament.championId
+      : null
 
   const { error: finalizeTournamentError } = await supabase
     .from('tournaments')
     .update({
       name: state.tournament.name,
       status: state.tournament.status,
-      champion_player_id: state.tournament.championId,
-      live_match_id: state.tournament.liveMatchId,
-      max_players: Math.max(2, getBracketSize(state.players.length)),
+      champion_player_id: championId,
+      live_match_id: liveMatchId,
+      max_players: maxPlayers,
       updated_at: now,
     })
     .eq('id', tournamentId)
 
   if (finalizeTournamentError) {
-    throw finalizeTournamentError
+    throw new Error(`Falha ao finalizar torneio: ${formatSupabaseError(finalizeTournamentError)}`)
   }
 }

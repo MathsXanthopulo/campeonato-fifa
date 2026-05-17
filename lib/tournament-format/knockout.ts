@@ -1,4 +1,6 @@
 import { Player } from '../types'
+import { buildGroupAwarePlayerOrder } from './group-knockout-seeding'
+import type { QualificationResult } from './standings'
 import { FormatKnockout, FormatKnockoutMatch, KnockoutRoundKey } from './types'
 import {
   knockoutRoundKeyForRound,
@@ -72,50 +74,13 @@ function buildKnockoutTree(
     match.isBye =
       (Boolean(match.player1Id) && !match.player2Id) ||
       (!match.player1Id && Boolean(match.player2Id))
+    // Bye fica pendente; o avanco para a proxima rodada ocorre ao finalizar a partida no app.
     if (match.isBye) {
-      match.status = 'completed'
+      match.status = 'pending'
     }
   }
-
-  propagateByes(matches, totalRounds, roundOffset)
 
   return matches
-}
-
-function propagateByes(
-  matches: FormatKnockoutMatch[],
-  totalRounds: number,
-  roundOffset: number
-): void {
-  for (let pass = 0; pass < totalRounds; pass += 1) {
-    for (let round = 1; round < totalRounds; round += 1) {
-      const absoluteRound = round + roundOffset
-      const roundMatches = matches
-        .filter((m) => m.round === absoluteRound)
-        .sort((a, b) => a.position - b.position)
-
-      for (const match of roundMatches) {
-        let winnerId: string | null = null
-        if (match.player1Id && !match.player2Id) winnerId = match.player1Id
-        else if (match.player2Id && !match.player1Id) winnerId = match.player2Id
-        if (!winnerId) continue
-
-        const nextRound = absoluteRound + 1
-        const nextPosition = Math.floor(match.position / 2)
-        const isPlayer1 = match.position % 2 === 0
-        const nextMatch = matches.find(
-          (m) => m.round === nextRound && m.position === nextPosition
-        )
-        if (!nextMatch) continue
-
-        if (isPlayer1) {
-          if (!nextMatch.player1Id) nextMatch.player1Id = winnerId
-        } else if (!nextMatch.player2Id) {
-          nextMatch.player2Id = winnerId
-        }
-      }
-    }
-  }
 }
 
 export function generateKnockoutSection(
@@ -212,14 +177,13 @@ export function buildKnockoutFromQualified(
 
 /**
  * Monta o mata-mata a partir dos classificados.
- * Líderes de grupo vão primeiro na ordem de seeds → recebem bye/preliminar favorável.
+ * Líderes priorizam bye; confrontos da 1ª rodada evitam jogadores do mesmo grupo.
  */
 export function buildKnockoutFromGroupQualification(
-  groupWinners: string[],
-  otherQualified: string[],
+  qualification: QualificationResult,
   targetSize: number
 ): FormatKnockout {
-  const seedIds = [...groupWinners, ...otherQualified]
+  const seedIds = buildGroupAwarePlayerOrder(qualification.entries, targetSize)
   const fakePlayers = seedIds.map((id) => ({
     id,
     name: id,

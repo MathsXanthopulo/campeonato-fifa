@@ -21,6 +21,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import { isKnockoutByeMatch } from '@/lib/bracket'
 import { PencilLine } from 'lucide-react'
 
 interface MatchResultDialogProps {
@@ -40,7 +41,8 @@ export function MatchResultDialog({ match, player1, player2, onSave }: MatchResu
   const [errorMessage, setErrorMessage] = useState('')
 
   const isGroupMatch = match.phase === 'groups'
-  const canPlay = Boolean(player1 && player2)
+  const isByeWalkover = isKnockoutByeMatch(match)
+  const canPlay = Boolean(player1 && player2) || isByeWalkover
 
   useEffect(() => {
     if (!open) return
@@ -60,6 +62,24 @@ export function MatchResultDialog({ match, player1, player2, onSave }: MatchResu
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+
+    if (isByeWalkover) {
+      const byeWinner = player1 ?? player2
+      if (!byeWinner) {
+        setErrorMessage('Essa partida ainda nao possui um jogador definido.')
+        return
+      }
+
+      finishMatch({
+        score1: player1 ? 1 : 0,
+        score2: player2 ? 1 : 0,
+        wentToPenalties: false,
+        penaltyScore1: null,
+        penaltyScore2: null,
+        winnerId: byeWinner.id,
+      })
+      return
+    }
 
     if (!player1 || !player2) {
       setErrorMessage('Essa partida ainda nao possui os dois jogadores definidos.')
@@ -166,10 +186,20 @@ export function MatchResultDialog({ match, player1, player2, onSave }: MatchResu
           <DialogDescription>
             Ao salvar, a partida sera marcada como <strong>Finalizada</strong>.
             {isGroupMatch && ' Empates sao permitidos na fase de grupos.'}
+            {isByeWalkover && ' Partida de bye: confirme o avanco do jogador sem adversario.'}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {isByeWalkover && (
+            <p className="text-sm text-muted-foreground rounded-lg border border-border/60 p-4">
+              <strong className="text-foreground">{player1?.name ?? player2?.name}</strong> avanca
+              automaticamente (sem adversario nesta rodada).
+            </p>
+          )}
+
+          {!isByeWalkover && (
+          <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor={`score1-${match.id}`}>{player1?.name || 'Jogador 1'}</Label>
@@ -196,7 +226,7 @@ export function MatchResultDialog({ match, player1, player2, onSave }: MatchResu
             </div>
           </div>
 
-          {!isGroupMatch && (
+          {!isGroupMatch && !isByeWalkover && (
             <div className="rounded-lg border border-border/60 p-4">
               <div className="flex items-center gap-3">
                 <Checkbox
@@ -252,6 +282,8 @@ export function MatchResultDialog({ match, player1, player2, onSave }: MatchResu
                 </Accordion>
               )}
             </div>
+          )}
+          </>
           )}
 
           {errorMessage && <p className="text-sm text-destructive">{errorMessage}</p>}

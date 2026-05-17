@@ -40,51 +40,16 @@ function shufflePlayers(players: Player[]): Player[] {
   return shuffled
 }
 
-/** Avança vencedores de bye e preenche slots da rodada seguinte (inclui cascata). */
-function propagateByes(matches: Match[], totalRounds: number): void {
-  for (let pass = 0; pass < totalRounds; pass += 1) {
-    for (let round = 1; round < totalRounds; round += 1) {
-      const roundMatches = matches
-        .filter((m) => m.round === round)
-        .sort((a, b) => a.position - b.position)
+export function isPreliminaryMatch(match: Match): boolean {
+  return match.id.startsWith('ko-prelim-')
+}
 
-      for (const match of roundMatches) {
-        let winnerId = match.winnerId
-
-        if (!winnerId) {
-          if (match.player1Id && !match.player2Id) winnerId = match.player1Id
-          else if (match.player2Id && !match.player1Id) winnerId = match.player2Id
-        }
-
-        if (!winnerId) continue
-
-        const isBye =
-          (match.player1Id && !match.player2Id) || (!match.player1Id && match.player2Id)
-
-        if (isBye) {
-          match.winnerId = winnerId
-          match.status = 'completed'
-          match.score1 = match.player1Id ? 1 : 0
-          match.score2 = match.player2Id ? 1 : 0
-        }
-
-        const nextRound = round + 1
-        const nextPosition = Math.floor(match.position / 2)
-        const isPlayer1 = match.position % 2 === 0
-        const nextMatch = matches.find(
-          (m) => m.round === nextRound && m.position === nextPosition
-        )
-
-        if (!nextMatch) continue
-
-        if (isPlayer1) {
-          if (!nextMatch.player1Id) nextMatch.player1Id = winnerId
-        } else if (!nextMatch.player2Id) {
-          nextMatch.player2Id = winnerId
-        }
-      }
-    }
-  }
+export function isKnockoutByeMatch(match: Match): boolean {
+  return (
+    match.phase === 'knockout' &&
+    ((Boolean(match.player1Id) && !match.player2Id) ||
+      (!match.player1Id && Boolean(match.player2Id)))
+  )
 }
 
 /**
@@ -143,8 +108,6 @@ export function generateBracket(players: Player[], shuffle = false): Match[] {
     }
   }
 
-  propagateByes(matches, totalRounds)
-
   return matches
 }
 
@@ -177,6 +140,20 @@ function buildEmptyBracketStructure(bracketSize: number, createdAt: string): Mat
 }
 
 export function getMaxRound(matches: Match[]): number {
-  if (matches.length === 0) return 0
-  return Math.max(...matches.map((m) => m.round))
+  const main = matches.filter((m) => !isPreliminaryMatch(m) && m.round >= 1)
+  if (main.length === 0) return 0
+  return Math.max(...main.map((m) => m.round))
+}
+
+export function splitKnockoutMatches(matches: Match[]) {
+  const preliminary = matches
+    .filter((m) => isPreliminaryMatch(m))
+    .sort((a, b) => a.position - b.position)
+  const main = matches
+    .filter((m) => m.phase === 'knockout' && !isPreliminaryMatch(m))
+    .sort((a, b) => {
+      if (a.round !== b.round) return a.round - b.round
+      return a.position - b.position
+    })
+  return { preliminary, main }
 }

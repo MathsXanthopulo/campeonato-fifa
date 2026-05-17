@@ -4,14 +4,13 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
-import { Home, Trophy, List, LayoutGrid } from 'lucide-react'
+import { Home, Trophy, LayoutGrid } from 'lucide-react'
 import { useTournament } from '@/lib/tournament-context'
 
 const baseNavItems = [
   { href: '/', label: 'Início', icon: Home },
   { href: '/groups', label: 'Grupos', icon: LayoutGrid, requiresGroups: true },
   { href: '/bracket', label: 'Chave', icon: Trophy },
-  { href: '/admin', label: 'Partidas', icon: List },
 ]
 
 export function Navigation() {
