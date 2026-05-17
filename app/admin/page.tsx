@@ -22,8 +22,7 @@ import {
 import { cn } from '@/lib/utils'
 import { generateTournamentFormat } from '@/lib/tournament-format'
 import { Home, List, RotateCcw, Shuffle, Trophy } from 'lucide-react'
-import { getMaxRound, getRoundLabel } from '@/lib/bracket'
-import { getKnockoutRoundLabel } from '@/lib/tournament-format/knockout'
+import { buildKnockoutPanelSections } from '@/lib/bracket'
 
 type MatchFilter = 'all' | 'pending' | 'completed'
 
@@ -131,7 +130,7 @@ export default function MatchesPanelPage() {
   const { tournament, players, matches, groups } = state
   const groupMatches = matches.filter((match) => match.phase === 'groups')
   const knockoutMatches = matches.filter((match) => match.phase === 'knockout')
-  const totalKnockoutRounds = getMaxRound(knockoutMatches)
+  const knockoutSections = buildKnockoutPanelSections(knockoutMatches)
   const liveMatches = matches.filter((match) => match.status === 'live').length
   const overallPct =
     matches.length > 0
@@ -444,38 +443,30 @@ export default function MatchesPanelPage() {
             )
           })}
 
-          {Array.from({ length: totalKnockoutRounds }, (_, index) => {
-            const round = index + 1
-            const allRoundMatches = knockoutMatches
-              .filter((match) => match.round === round)
-              .sort((a, b) => a.position - b.position)
+          {knockoutSections.map((section, sectionIndex) => {
+            const allSectionMatches = section.matches
+            const sectionMatches = filterMatches(allSectionMatches, filter)
 
-            const roundMatches = filterMatches(allRoundMatches, filter)
+            if (sectionMatches.length === 0) return null
 
-            if (roundMatches.length === 0) return null
-
-            const prelimCount = knockoutMatches.filter((m) => m.id.startsWith('ko-prelim-')).length
-            const roundTitle =
-              prelimCount > 0 && round === 1
-                ? getKnockoutRoundLabel('preliminary')
-                : getRoundLabel(round, totalKnockoutRounds)
+            const isFinalSection = sectionIndex === knockoutSections.length - 1
 
             return (
-              <motion.section key={`ko-${round}`} className="glass rounded-2xl p-6 space-y-5">
+              <motion.section key={section.key} className="glass rounded-2xl p-6 space-y-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                   <div className="flex items-center gap-2">
                     <Trophy
-                      className={`w-5 h-5 ${round === totalKnockoutRounds ? 'text-gold' : 'text-neon-purple'}`}
+                      className={`w-5 h-5 ${isFinalSection ? 'text-gold' : 'text-neon-purple'}`}
                     />
-                    <h2 className="text-lg font-bold">{roundTitle}</h2>
+                    <h2 className="text-lg font-bold">{section.title}</h2>
                   </div>
                   <div className="w-full sm:max-w-xs">
-                    <SectionProgress matches={allRoundMatches} />
+                    <SectionProgress matches={allSectionMatches} />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {roundMatches.map((match) => (
+                  {sectionMatches.map((match) => (
                     <MatchPanelCard
                       key={match.id}
                       match={match}

@@ -1,3 +1,4 @@
+import { getKnockoutRoundLabel } from './tournament-format/knockout'
 import { Match, Player } from './types'
 
 export const MIN_PLAYERS_TO_START = 2
@@ -156,4 +157,41 @@ export function splitKnockoutMatches(matches: Match[]) {
       return a.position - b.position
     })
   return { preliminary, main }
+}
+
+export interface KnockoutPanelSection {
+  key: string
+  title: string
+  matches: Match[]
+}
+
+/** Mesma ordem e agrupamento do componente de chaveamento (preliminar → rodadas). */
+export function buildKnockoutPanelSections(knockoutMatches: Match[]): KnockoutPanelSection[] {
+  const { preliminary, main } = splitKnockoutMatches(knockoutMatches)
+  const totalRounds = getMaxRound(main)
+  const sections: KnockoutPanelSection[] = []
+
+  if (preliminary.length > 0) {
+    sections.push({
+      key: 'preliminary',
+      title: getKnockoutRoundLabel('preliminary'),
+      matches: preliminary,
+    })
+  }
+
+  for (let round = 1; round <= totalRounds; round += 1) {
+    const roundMatches = main
+      .filter((match) => match.round === round)
+      .sort((a, b) => a.position - b.position)
+
+    if (roundMatches.length === 0) continue
+
+    sections.push({
+      key: `round-${round}`,
+      title: getRoundLabel(round, totalRounds),
+      matches: roundMatches,
+    })
+  }
+
+  return sections
 }
