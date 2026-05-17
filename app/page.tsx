@@ -23,7 +23,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Trophy, ChevronRight, Pencil, Trash2, UserPlus } from 'lucide-react'
+import { Archive, Trophy, ChevronRight, Pencil, Trash2, UserPlus } from 'lucide-react'
 
 interface RegisteredPlayerCardProps {
   player: Player
@@ -275,7 +275,22 @@ export default function HomePage() {
           />
           
           {champion && (
-            <ChampionSection champion={champion} />
+            <>
+              <ChampionSection champion={champion} />
+              <div className="glass rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border border-[#d8a844]/30">
+                <p className="text-sm text-muted-foreground">
+                  Campeonato encerrado. Salve no histórico antes de iniciar outro.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Link href="/history">
+                    <Button variant="outline" size="sm">
+                      <Archive className="w-4 h-4 mr-2" />
+                      Ver histórico
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            </>
           )}
 
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -366,7 +381,7 @@ export default function HomePage() {
 
               {!canRegister && (
                 <p className="mt-4 text-sm text-muted-foreground">
-                  {isRegistrationFull
+                  {isRegistrationClosed
                     ? 'As vagas desta chave ja foram preenchidas.'
                     : 'As inscricoes ficam disponiveis somente antes do inicio do torneio.'}
                 </p>

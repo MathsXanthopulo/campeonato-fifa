@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react'
 import { TournamentState, Player, Match, TournamentMode } from './types'
 import * as store from './store'
+import { archiveTournamentAndStartNew } from './tournament-archive-repository'
 import {
   fetchTournamentStateFromSupabase,
   persistTournamentStateToSupabase,
@@ -23,6 +24,7 @@ interface TournamentContextType {
   setTournamentMode: (mode: TournamentMode) => void
   advanceToKnockout: () => void
   setChampion: (playerId: string | null) => void
+  archiveAndStartNewTournament: () => Promise<void>
   getPlayer: (playerId: string | null) => Player | undefined
 }
 
@@ -176,6 +178,14 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
     return state.players.find(p => p.id === playerId)
   }, [state])
 
+  const archiveAndStartNewTournament = useCallback(async () => {
+    if (!state) return
+
+    const { nextState } = await archiveTournamentAndStartNew(state)
+    store.saveState(nextState)
+    setState(nextState)
+  }, [state])
+
   return (
     <TournamentContext.Provider
       value={{
@@ -193,6 +203,7 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
         setTournamentMode,
         advanceToKnockout,
         setChampion,
+        archiveAndStartNewTournament,
         getPlayer,
       }}
     >

@@ -140,8 +140,27 @@ function advancePreliminaryWinner(
 
   if (!feedMatch.player1Id) {
     feedMatch.player1Id = winnerId
-  } else if (!feedMatch.player2Id) {
+    return
+  }
+  if (!feedMatch.player2Id) {
     feedMatch.player2Id = winnerId
+    return
+  }
+
+  // Vaga calculada já ocupada (ex.: bye Gustavo x Cristiano) — usa slot vazio na rodada 1.
+  const fallback = matches.find(
+    (m) =>
+      m.phase === 'knockout' &&
+      m.round === 1 &&
+      !m.id.startsWith('ko-prelim-') &&
+      ((!m.player1Id && m.player2Id) || (m.player1Id && !m.player2Id))
+  )
+  if (!fallback) return
+
+  if (!fallback.player1Id) {
+    fallback.player1Id = winnerId
+  } else {
+    fallback.player2Id = winnerId
   }
 }
 
@@ -423,6 +442,26 @@ export function deletePlayer(state: TournamentState, playerId: string): Tourname
   }
   saveState(newState)
   return newState
+}
+
+/** Estado inicial vazio para um campeonato novo (após arquivar o anterior). */
+export function createEmptyTournamentState(name?: string): TournamentState {
+  const now = new Date().toISOString()
+  return {
+    tournament: {
+      id: '1',
+      name: name ?? defaultTournament.name,
+      mode: 'knockout',
+      phase: 'setup',
+      championId: null,
+      status: 'setup',
+      liveMatchId: null,
+      createdAt: now,
+    },
+    players: [],
+    groups: [],
+    matches: [],
+  }
 }
 
 /** Encerra o torneio atual e prepara um novo ciclo: mantém inscritos, zera placares e chave. */

@@ -52,3 +52,20 @@ export interface TournamentState {
   groups: TournamentGroup[]
   matches: Match[]
 }
+
+export interface TournamentArchiveSummary {
+  id: string
+  sourceTournamentId: string
+  name: string
+  mode: TournamentMode
+  championPlayerId: string | null
+  championName: string
+  championTeam: string
+  playerCount: number
+  matchCount: number
+  finishedAt: string
+}
+
+export interface TournamentArchive extends TournamentArchiveSummary {
+  snapshot: TournamentState
+}

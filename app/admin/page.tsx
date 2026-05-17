@@ -21,7 +21,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { generateTournamentFormat } from '@/lib/tournament-format'
-import { Home, List, RotateCcw, Shuffle, Trophy } from 'lucide-react'
+import { canArchiveTournament } from '@/lib/tournament-archive'
+import { Home, List, Archive, RotateCcw, Shuffle, Trophy } from 'lucide-react'
 import { buildKnockoutPanelSections } from '@/lib/bracket'
 
 type MatchFilter = 'all' | 'pending' | 'completed'
@@ -99,9 +100,11 @@ export default function MatchesPanelPage() {
     setTournamentMode,
     drawBracket,
     restartTournament,
+    archiveAndStartNewTournament,
   } = useTournament()
   const [filter, setFilter] = useState<MatchFilter>('all')
   const [adminMessage, setAdminMessage] = useState('')
+  const [isArchiving, setIsArchiving] = useState(false)
 
   const counts = useMemo(() => {
     if (!state) return { all: 0, pending: 0, completed: 0 }
@@ -179,6 +182,28 @@ export default function MatchesPanelPage() {
       'Campeonato reiniciado. Inscritos mantidos — escolha a modalidade e sorteie a chave novamente.'
     )
   }
+
+  const handleArchiveAndStartNew = async () => {
+    if (!state || !canArchiveTournament(state)) return
+    setIsArchiving(true)
+    try {
+      await archiveAndStartNewTournament()
+      setAdminMessage(
+        'Campeonato salvo no histórico. Cadastre os jogadores e inicie um novo torneio.'
+      )
+    } catch (error) {
+      setAdminMessage(
+        error instanceof Error ? error.message : 'Não foi possível salvar no histórico.'
+      )
+    } finally {
+      setIsArchiving(false)
+    }
+  }
+
+  const canArchive =
+    state &&
+    canArchiveTournament(state) &&
+    (Boolean(tournament.championId) || tournament.status === 'completed')
 
   return (
     <main className="min-h-screen pb-24 md:pb-8">
@@ -312,6 +337,44 @@ export default function MatchesPanelPage() {
               Modalidade e sorteio só podem ser alterados com o torneio em preparação. Use
               &quot;Novo torneio&quot; abaixo para recomeçar.
             </p>
+          )}
+
+          {canArchive && (
+            <div className="rounded-xl border border-[#d8a844]/40 bg-[#d8a844]/10 p-4 space-y-3">
+              <p className="font-semibold text-[#f4d588]">Campeonato finalizado</p>
+              <p className="text-sm text-muted-foreground">
+                Salve este campeonato no histórico antes de começar outro.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button disabled={isArchiving} className="shrink-0">
+                      <Archive className="w-4 h-4 mr-2" />
+                      Salvar no histórico e novo campeonato
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Salvar e iniciar novo campeonato?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        O torneio atual será registrado no histórico. O torneio ativo será zerado.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleArchiveAndStartNew}>
+                        Sim, salvar e recomeçar
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+                <Link href="/history">
+                  <Button variant="outline" type="button">
+                    Ver histórico
+                  </Button>
+                </Link>
+              </div>
+            </div>
           )}
 
           {canRestartTournament && (
