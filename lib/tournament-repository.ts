@@ -1,6 +1,8 @@
-import { MAX_PLAYERS } from './store'
+import { getBracketSize } from './bracket'
+import { fromDatabaseRoundAndPosition, toDatabaseRoundAndPosition } from './match-db-encoding'
+import { formatToAppState, generateTournamentFormat } from './tournament-format'
 import { isSupabaseConfigured, supabase } from './supabase'
-import { Match, Player, TournamentState } from './types'
+import { Match, Player, TournamentGroup, TournamentState } from './types'
 
 const DEFAULT_TOURNAMENT_ID = '1'
 const DEFAULT_TOURNAMENT_SLUG = 'main'
@@ -56,7 +58,7 @@ function getDefaultTournamentRow(): TournamentRow {
     status: 'setup',
     champion_player_id: null,
     live_match_id: null,
-    max_players: MAX_PLAYERS,
+    max_players: 2,
     created_at: now,
     updated_at: now,
   }
@@ -75,6 +77,11 @@ function mapPlayers(rows: TournamentPlayerRow[]): Player[] {
     }))
 }
 
+function inferGroupId(matchId: string): string | null {
+  const match = matchId.match(/^(group-[a-z])-m\d+$/i)
+  return match ? match[1] : null
+}
+
 function mapMatches(rows: MatchRow[]): Match[] {
   return rows
     .sort((a, b) => {
@@ -84,107 +91,74 @@ function mapMatches(rows: MatchRow[]): Match[] {
 
       return a.position - b.position
     })
-    .map((row) => ({
-      id: row.id,
-      player1Id: row.player1_id,
-      player2Id: row.player2_id,
-      score1: row.score1,
-      score2: row.score2,
-      wentToPenalties: row.went_to_penalties ?? false,
-      penaltyScore1: row.penalty_score1,
-      penaltyScore2: row.penalty_score2,
-      winnerId: row.winner_id,
-      round: row.round,
-      position: row.position,
-      status: row.status,
-      createdAt: row.created_at,
-    }))
+    .map((row) => {
+      const groupId = inferGroupId(row.id)
+      const decoded = fromDatabaseRoundAndPosition(
+        { round: row.round, position: row.position, id: row.id },
+        groupId
+      )
+
+      return {
+        id: row.id,
+        player1Id: row.player1_id,
+        player2Id: row.player2_id,
+        score1: row.score1,
+        score2: row.score2,
+        wentToPenalties: row.went_to_penalties ?? false,
+        penaltyScore1: row.penalty_score1,
+        penaltyScore2: row.penalty_score2,
+        winnerId: row.winner_id,
+        round: decoded.round,
+        position: decoded.position,
+        status: row.status,
+        phase: decoded.phase,
+        groupId: decoded.groupId,
+        createdAt: row.created_at,
+      }
+    })
 }
 
-function createFallbackBracket(players: Player[]): Match[] {
-  const now = new Date().toISOString()
-  const matches: Match[] = []
+function deriveGroups(matches: Match[]): TournamentGroup[] {
+  const groupMap = new Map<string, Set<string>>()
 
-  const round1Matchups = [
-    [0, 13],
-    [1, 12],
-    [2, 11],
-    [3, 10],
-    [4, 9],
-    [5, 8],
-  ]
-
-  round1Matchups.forEach(([p1, p2], index) => {
-    matches.push({
-      id: `r1-${index}`,
-      player1Id: players[p1]?.id ?? null,
-      player2Id: players[p2]?.id ?? null,
-      score1: null,
-      score2: null,
-      wentToPenalties: false,
-      penaltyScore1: null,
-      penaltyScore2: null,
-      winnerId: null,
-      round: 1,
-      position: index,
-      status: 'pending',
-      createdAt: now,
-    })
-  })
-
-  for (let i = 0; i < 4; i += 1) {
-    matches.push({
-      id: `r2-${i}`,
-      player1Id: i === 0 ? players[6]?.id ?? null : null,
-      player2Id: i === 3 ? players[7]?.id ?? null : null,
-      score1: null,
-      score2: null,
-      wentToPenalties: false,
-      penaltyScore1: null,
-      penaltyScore2: null,
-      winnerId: null,
-      round: 2,
-      position: i,
-      status: 'pending',
-      createdAt: now,
-    })
+  for (const match of matches) {
+    if (match.phase !== 'groups' || !match.groupId) continue
+    const bucket = groupMap.get(match.groupId) ?? new Set<string>()
+    if (match.player1Id) bucket.add(match.player1Id)
+    if (match.player2Id) bucket.add(match.player2Id)
+    groupMap.set(match.groupId, bucket)
   }
 
-  for (let i = 0; i < 2; i += 1) {
-    matches.push({
-      id: `r3-${i}`,
-      player1Id: null,
-      player2Id: null,
-      score1: null,
-      score2: null,
-      wentToPenalties: false,
-      penaltyScore1: null,
-      penaltyScore2: null,
-      winnerId: null,
-      round: 3,
-      position: i,
-      status: 'pending',
-      createdAt: now,
-    })
-  }
+  return [...groupMap.entries()].map(([id, playerIds]) => ({
+    id,
+    name: `Grupo ${id.replace('group-', '').toUpperCase()}`,
+    playerIds: [...playerIds],
+  }))
+}
 
-  matches.push({
-    id: 'r4-0',
-    player1Id: null,
-    player2Id: null,
-    score1: null,
-    score2: null,
-    wentToPenalties: false,
-    penaltyScore1: null,
-    penaltyScore2: null,
-    winnerId: null,
-    round: 4,
-    position: 0,
-    status: 'pending',
-    createdAt: now,
+function buildFallbackState(players: Player[]): TournamentState {
+  const format = generateTournamentFormat({
+    players,
+    mode: 'knockout',
+    shuffle: false,
   })
+  const { groups, matches } = formatToAppState(format)
 
-  return matches
+  return {
+    tournament: {
+      id: DEFAULT_TOURNAMENT_ID,
+      name: DEFAULT_TOURNAMENT_NAME,
+      mode: 'knockout',
+      phase: 'setup',
+      championId: null,
+      status: 'setup',
+      liveMatchId: null,
+      createdAt: new Date().toISOString(),
+    },
+    players,
+    groups,
+    matches,
+  }
 }
 
 async function ensureTournament(): Promise<TournamentRow> {
@@ -248,17 +222,37 @@ export async function fetchTournamentStateFromSupabase(): Promise<TournamentStat
   const mappedPlayers = mapPlayers((players ?? []) as TournamentPlayerRow[])
   const mappedMatches = mapMatches((matches ?? []) as MatchRow[])
 
+  if (mappedMatches.length === 0 && mappedPlayers.length === 0) {
+    return buildFallbackState([])
+  }
+
+  if (mappedMatches.length === 0) {
+    return buildFallbackState(mappedPlayers)
+  }
+
+  const hasGroupMatches = mappedMatches.some((match) => match.phase === 'groups')
+  const mode = hasGroupMatches ? 'groups_knockout' : 'knockout'
+  const hasKnockout = mappedMatches.some((match) => match.phase === 'knockout')
+
   return {
     tournament: {
       id: tournament.id,
       name: tournament.name,
+      mode,
+      phase:
+        tournament.status === 'completed'
+          ? 'completed'
+          : hasGroupMatches && !hasKnockout
+            ? 'groups'
+            : 'knockout',
       championId: tournament.champion_player_id,
       status: tournament.status,
       liveMatchId: tournament.live_match_id,
       createdAt: tournament.created_at,
     },
     players: mappedPlayers,
-    matches: mappedMatches.length > 0 ? mappedMatches : createFallbackBracket(mappedPlayers),
+    groups: deriveGroups(mappedMatches),
+    matches: mappedMatches,
   }
 }
 
@@ -277,23 +271,27 @@ function mapPlayerRows(tournamentId: string, players: Player[]): TournamentPlaye
 function mapMatchRows(tournamentId: string, matches: Match[]): MatchRow[] {
   const now = new Date().toISOString()
 
-  return matches.map((match) => ({
-    id: match.id,
-    tournament_id: tournamentId,
-    player1_id: match.player1Id,
-    player2_id: match.player2Id,
-    winner_id: match.winnerId,
-    score1: match.score1,
-    score2: match.score2,
-    went_to_penalties: match.wentToPenalties,
-    penalty_score1: match.penaltyScore1,
-    penalty_score2: match.penaltyScore2,
-    round: match.round,
-    position: match.position,
-    status: match.status,
-    created_at: match.createdAt,
-    updated_at: now,
-  }))
+  return matches.map((match) => {
+    const { round, position } = toDatabaseRoundAndPosition(match)
+
+    return {
+      id: match.id,
+      tournament_id: tournamentId,
+      player1_id: match.player1Id,
+      player2_id: match.player2Id,
+      winner_id: match.winnerId,
+      score1: match.score1,
+      score2: match.score2,
+      went_to_penalties: match.wentToPenalties,
+      penalty_score1: match.penaltyScore1,
+      penalty_score2: match.penaltyScore2,
+      round,
+      position,
+      status: match.status,
+      created_at: match.createdAt,
+      updated_at: now,
+    }
+  })
 }
 
 export async function persistTournamentStateToSupabase(state: TournamentState): Promise<void> {
@@ -314,7 +312,7 @@ export async function persistTournamentStateToSupabase(state: TournamentState): 
         status: state.tournament.status,
         champion_player_id: null,
         live_match_id: null,
-        max_players: MAX_PLAYERS,
+        max_players: Math.max(2, getBracketSize(state.players.length)),
         created_at: state.tournament.createdAt,
         updated_at: now,
       },
@@ -356,9 +354,7 @@ export async function persistTournamentStateToSupabase(state: TournamentState): 
 
   const matchRows = mapMatchRows(tournamentId, state.matches)
   if (matchRows.length > 0) {
-    const { error: insertMatchesError } = await supabase
-      .from('matches')
-      .upsert(matchRows, { onConflict: 'id' })
+    const { error: insertMatchesError } = await supabase.from('matches').insert(matchRows)
 
     if (insertMatchesError) {
       throw insertMatchesError
@@ -372,7 +368,7 @@ export async function persistTournamentStateToSupabase(state: TournamentState): 
       status: state.tournament.status,
       champion_player_id: state.tournament.championId,
       live_match_id: state.tournament.liveMatchId,
-      max_players: MAX_PLAYERS,
+      max_players: Math.max(2, getBracketSize(state.players.length)),
       updated_at: now,
     })
     .eq('id', tournamentId)

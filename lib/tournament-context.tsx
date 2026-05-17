@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react'
-import { TournamentState, Player, Match } from './types'
+import { TournamentState, Player, Match, TournamentMode } from './types'
 import * as store from './store'
 import {
   fetchTournamentStateFromSupabase,
@@ -19,6 +19,8 @@ interface TournamentContextType {
   resetTournament: () => void
   drawBracket: () => void
   startTournament: () => void
+  setTournamentMode: (mode: TournamentMode) => void
+  advanceToKnockout: () => void
   setChampion: (playerId: string | null) => void
   getPlayer: (playerId: string | null) => Player | undefined
 }
@@ -76,7 +78,11 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
         }
 
         const shouldPromoteLocalState = hasMeaningfulState(localState) && !hasMeaningfulState(remoteState)
-        const initialState = shouldPromoteLocalState ? localState : remoteState
+        let initialState = shouldPromoteLocalState ? localState : remoteState
+
+        if (store.shouldAutoAdvanceToKnockout(initialState)) {
+          initialState = store.advanceToKnockout(initialState)
+        }
 
         setState(initialState)
         store.saveState(initialState)
@@ -152,6 +158,14 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
     applyStateUpdate((currentState) => store.setChampion(currentState, playerId))
   }, [applyStateUpdate])
 
+  const setTournamentMode = useCallback((mode: TournamentMode) => {
+    applyStateUpdate((currentState) => store.setTournamentMode(currentState, mode))
+  }, [applyStateUpdate])
+
+  const advanceToKnockout = useCallback(() => {
+    applyStateUpdate((currentState) => store.advanceToKnockout(currentState))
+  }, [applyStateUpdate])
+
   const getPlayer = useCallback((playerId: string | null) => {
     if (!playerId || !state) return undefined
     return state.players.find(p => p.id === playerId)
@@ -170,6 +184,8 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
         resetTournament,
         drawBracket,
         startTournament,
+        setTournamentMode,
+        advanceToKnockout,
         setChampion,
         getPlayer,
       }}

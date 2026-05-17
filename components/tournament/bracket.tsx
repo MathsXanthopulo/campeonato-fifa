@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { getMaxRound, getRoundLabel, getRoundLabelShort } from '@/lib/bracket'
 import { Match, Player } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { ChevronLeft, ChevronRight, Trophy } from 'lucide-react'
@@ -15,6 +16,7 @@ interface BracketMatchProps {
   isLive?: boolean
   compact?: boolean
   side?: BracketSide
+  isFinal?: boolean
 }
 
 function getBracketTitle(player?: Player) {
@@ -33,6 +35,7 @@ function BracketMatch({
   isLive,
   compact = false,
   side = 'left',
+  isFinal = false,
 }: BracketMatchProps) {
   const isCompleted = match.status === 'completed'
   const cardWidth = compact ? 'w-full' : 'w-[144px] lg:w-[152px] xl:w-[160px]'
@@ -48,14 +51,13 @@ function BracketMatch({
       className={cn(
         'relative overflow-hidden rounded-2xl border border-[#5d4720]/80 bg-black/75 shadow-[0_0_24px_rgba(240,191,85,0.08)]',
         isLive && 'border-red-500/70 shadow-[0_0_28px_rgba(239,68,68,0.15)]',
-        match.round === 4 && 'border-[#d8a844] shadow-[0_0_32px_rgba(240,191,85,0.18)]',
+        isFinal && 'border-[#d8a844] shadow-[0_0_32px_rgba(240,191,85,0.18)]',
         cardWidth
       )}
     >
-      <div className={cn('absolute inset-y-0 w-1', accentPosition)} />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(247,211,127,0.12),transparent_55%)]" />
+      <motion.div className={cn('absolute inset-y-0 w-1', accentPosition)} />
+      <motion.div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(247,211,127,0.12),transparent_55%)]" />
 
-      {/* Live indicator */}
       {isLive && (
         <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-full bg-red-500/10 px-1.5 py-1">
           <motion.div 
@@ -67,8 +69,7 @@ function BracketMatch({
         </div>
       )}
       
-      {/* Player 1 */}
-      <div className={cn(
+      <motion.div className={cn(
         'relative flex items-center gap-2 border-b border-[#2c2110] px-2.5 py-2',
         isCompleted && match.winnerId === player1?.id && 'bg-[#c6972c]/12'
       )}>
@@ -99,10 +100,9 @@ function BracketMatch({
         )}>
           {match.score1 ?? '-'}
         </span>
-      </div>
+      </motion.div>
       
-      {/* Player 2 */}
-      <div className={cn(
+      <motion.div className={cn(
         'relative flex items-center gap-2 px-2.5 py-2',
         isCompleted && match.winnerId === player2?.id && 'bg-[#c6972c]/12'
       )}>
@@ -133,7 +133,7 @@ function BracketMatch({
         )}>
           {match.score2 ?? '-'}
         </span>
-      </div>
+      </motion.div>
     </motion.div>
   )
 }
@@ -144,110 +144,45 @@ interface BracketProps {
   liveMatchId: string | null
 }
 
-const roundNames = ['Fase Inicial', 'Quartas', 'Semifinal', 'Final']
-const roundNamesMobile = ['Inicial', 'Quartas', 'Semi', 'Final']
-
-interface BracketColumnProps {
-  title: string
-  matches: Match[]
-  getPlayer: (id: string | null) => Player | undefined
-  liveMatchId: string | null
-  side: BracketSide
-  className?: string
-  gapClassName?: string
-}
-
-function BracketColumn({
-  title,
-  matches,
-  getPlayer,
-  liveMatchId,
-  side,
-  className,
-  gapClassName,
-}: BracketColumnProps) {
-  return (
-    <div className={cn('flex flex-col items-center', className)}>
-      <h3 className="mb-2 text-center text-[9px] font-semibold uppercase tracking-[0.18em] text-[#b8933b]">
-        {title}
-      </h3>
-
-      <div className={cn('flex flex-col', gapClassName)}>
-        {matches.map((match) => (
-          <BracketMatch
-            key={match.id}
-            match={match}
-            player1={getPlayer(match.player1Id)}
-            player2={getPlayer(match.player2Id)}
-            isLive={match.id === liveMatchId}
-            side={side}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-interface ConnectorColumnProps {
-  side: 'left' | 'right'
-  count: number
-  className?: string
-  connectorHeightClassName?: string
-  gapClassName?: string
-}
-
-function ConnectorColumn({
-  side,
-  count,
-  className,
-  connectorHeightClassName = 'h-24',
-  gapClassName = 'gap-24',
-}: ConnectorColumnProps) {
-  return (
-    <div className={cn('hidden md:flex flex-col justify-around', gapClassName, className)}>
-      {Array.from({ length: count }).map((_, index) => (
-        <div
-          key={index}
-          className={cn(
-            'w-5 border-[#6c5323]/70',
-            connectorHeightClassName,
-            side === 'right'
-              ? 'rounded-r-2xl border-r-2 border-t-2 border-b-2'
-              : 'rounded-l-2xl border-l-2 border-t-2 border-b-2'
-          )}
-        />
-      ))}
-    </div>
-  )
+function getRoundGapPx(round: number, totalRounds: number): number {
+  const exponent = Math.max(0, totalRounds - round - 1)
+  return Math.max(12, Math.pow(2, exponent) * 10)
 }
 
 export function Bracket({ matches, players, liveMatchId }: BracketProps) {
   const [activeRound, setActiveRound] = useState(1)
   const getPlayer = (id: string | null) => players.find(p => p.id === id)
-  
-  const round1 = matches.filter(m => m.round === 1).sort((a, b) => a.position - b.position)
-  const round2 = matches.filter(m => m.round === 2).sort((a, b) => a.position - b.position)
-  const semis = matches.filter(m => m.round === 3).sort((a, b) => a.position - b.position)
-  const finals = matches.filter(m => m.round === 4)
-  const leftRound1 = round1.slice(0, 3)
-  const rightRound1 = round1.slice(3, 6)
-  const leftRound2 = round2.slice(0, 2)
-  const rightRound2 = round2.slice(2, 4)
-  const leftSemi = semis[0] ? [semis[0]] : []
-  const rightSemi = semis[1] ? [semis[1]] : []
-  
-  const rounds = [round1, round2, semis, finals]
-  const activeMatches = rounds[activeRound - 1] || []
-  
-  const goToPrevRound = () => setActiveRound(r => Math.max(1, r - 1))
-  const goToNextRound = () => setActiveRound(r => Math.min(4, r + 1))
 
-  // Mobile View - Swipeable rounds
+  const totalRounds = getMaxRound(matches)
+
+  const rounds = useMemo(() => {
+    return Array.from({ length: totalRounds }, (_, index) => {
+      const round = index + 1
+      return matches
+        .filter((m) => m.round === round)
+        .sort((a, b) => a.position - b.position)
+    })
+  }, [matches, totalRounds])
+
+  const activeMatches = rounds[activeRound - 1] || []
+  const isFinalRound = activeRound === totalRounds && totalRounds > 0
+
+  const goToPrevRound = () => setActiveRound((r) => Math.max(1, r - 1))
+  const goToNextRound = () => setActiveRound((r) => Math.min(totalRounds, r + 1))
+
+  if (totalRounds === 0) {
+    return (
+      <p className="text-center text-sm text-muted-foreground py-12">
+        Cadastre pelo menos 2 jogadores e sorteie os confrontos para ver a chave.
+      </p>
+    )
+  }
+
   const MobileView = () => (
-    <div className="md:hidden">
-      {/* Round selector */}
+    <motion.div className="md:hidden">
       <div className="flex items-center justify-between mb-4 px-2">
         <button
+          type="button"
           onClick={goToPrevRound}
           disabled={activeRound === 1}
           className={cn(
@@ -258,49 +193,49 @@ export function Bracket({ matches, players, liveMatchId }: BracketProps) {
           <ChevronLeft className="w-6 h-6" />
         </button>
         
-        <div className="flex items-center gap-2">
-          {[1, 2, 3, 4].map((round) => (
-            <button
-              key={round}
-              onClick={() => setActiveRound(round)}
-              className={cn(
-                'px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-                activeRound === round 
-                  ? 'bg-gradient-to-r from-neon-blue to-neon-purple text-foreground' 
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {roundNamesMobile[round - 1]}
-            </button>
-          ))}
+        <div className="flex items-center gap-1 overflow-x-auto max-w-[70vw]">
+          {Array.from({ length: totalRounds }, (_, index) => {
+            const round = index + 1
+            return (
+              <button
+                key={round}
+                type="button"
+                onClick={() => setActiveRound(round)}
+                className={cn(
+                  'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap',
+                  activeRound === round 
+                    ? 'bg-gradient-to-r from-neon-blue to-neon-purple text-foreground' 
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {getRoundLabelShort(round, totalRounds)}
+              </button>
+            )
+          })}
         </div>
         
         <button
+          type="button"
           onClick={goToNextRound}
-          disabled={activeRound === 4}
+          disabled={activeRound === totalRounds}
           className={cn(
             'p-2 rounded-lg transition-colors',
-            activeRound === 4 ? 'text-muted-foreground/30' : 'text-foreground hover:bg-muted/50'
+            activeRound === totalRounds ? 'text-muted-foreground/30' : 'text-foreground hover:bg-muted/50'
           )}
         >
           <ChevronRight className="w-6 h-6" />
         </button>
       </div>
       
-      {/* Round title */}
       <div className="text-center mb-4">
-        <h3 className={cn(
-          'text-lg font-bold',
-          activeRound === 4 && 'text-gold'
-        )}>
-          {roundNames[activeRound - 1]}
+        <h3 className={cn('text-lg font-bold', isFinalRound && 'text-gold')}>
+          {getRoundLabel(activeRound, totalRounds)}
         </h3>
         <p className="text-xs text-muted-foreground">
           {activeMatches.length} {activeMatches.length === 1 ? 'partida' : 'partidas'}
         </p>
       </div>
       
-      {/* Matches */}
       <AnimatePresence mode="wait">
         <motion.div
           key={activeRound}
@@ -310,7 +245,7 @@ export function Bracket({ matches, players, liveMatchId }: BracketProps) {
           transition={{ duration: 0.2 }}
           className="space-y-3 px-2"
         >
-          {activeRound === 4 && (
+          {isFinalRound && (
             <div className="mb-4 flex flex-col items-center justify-center">
               <div className="flex h-20 w-20 items-center justify-center rounded-full border border-[#6c5323] bg-black/70 shadow-[0_0_25px_rgba(240,191,85,0.12)]">
                 <Trophy className="w-10 h-10 text-[#f4d588]" />
@@ -326,150 +261,94 @@ export function Bracket({ matches, players, liveMatchId }: BracketProps) {
               isLive={match.id === liveMatchId}
               compact
               side="center"
+              isFinal={isFinalRound}
             />
           ))}
         </motion.div>
       </AnimatePresence>
       
-      {/* Progress dots */}
       <div className="flex justify-center gap-2 mt-6">
-        {[1, 2, 3, 4].map((round) => (
-          <button
-            key={round}
-            onClick={() => setActiveRound(round)}
-            className={cn(
-              'w-2 h-2 rounded-full transition-all',
-              activeRound === round 
-                ? 'w-6 bg-gradient-to-r from-neon-blue to-neon-purple' 
-                : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'
-            )}
-          />
-        ))}
+        {Array.from({ length: totalRounds }, (_, index) => {
+          const round = index + 1
+          return (
+            <button
+              key={round}
+              type="button"
+              onClick={() => setActiveRound(round)}
+              className={cn(
+                'w-2 h-2 rounded-full transition-all',
+                activeRound === round 
+                  ? 'w-6 bg-gradient-to-r from-neon-blue to-neon-purple' 
+                  : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'
+              )}
+            />
+          )
+        })}
       </div>
-    </div>
+    </motion.div>
   )
 
-  // Desktop View - Symmetrical bracket
   const DesktopView = () => (
     <div className="hidden md:block relative overflow-x-auto pb-8">
-      <div className="relative min-w-[1020px] px-3 py-4 lg:min-w-[1100px]">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(247,211,127,0.08),transparent_45%)]" />
-        <div className="absolute left-1/2 top-8 h-[75%] w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-[#5d4720]/60 to-transparent" />
+      <motion.div className="relative min-w-max px-4 py-4">
+        <motion.div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(247,211,127,0.08),transparent_45%)]" />
 
-        <div className="relative flex items-center justify-center gap-2 lg:gap-3">
-          <BracketColumn
-            title="Lado A"
-            matches={leftRound1}
-            getPlayer={getPlayer}
-            liveMatchId={liveMatchId}
-            side="left"
-            gapClassName="gap-5"
-          />
+        <div className="relative flex items-center justify-center gap-3 lg:gap-4">
+          {rounds.map((roundMatches, index) => {
+            const round = index + 1
+            const isFinal = round === totalRounds
+            const gapPx = getRoundGapPx(round, totalRounds)
+            const showConnector = index > 0
 
-          <ConnectorColumn
-            side="right"
-            count={3}
-            className="py-8"
-            connectorHeightClassName="h-12"
-            gapClassName="gap-10"
-          />
+            return (
+              <div key={round} className="flex items-center gap-3 lg:gap-4">
+                {showConnector && (
+                  <div
+                    className="hidden lg:flex flex-col justify-around"
+                    style={{ gap: `${gapPx}px` }}
+                  >
+                    {Array.from({ length: Math.max(1, Math.ceil(roundMatches.length / 2)) }).map((_, connectorIndex) => (
+                      <div
+                        key={connectorIndex}
+                        className="w-4 h-8 border-[#6c5323]/70 rounded-r-xl border-r-2 border-t-2 border-b-2"
+                      />
+                    ))}
+                  </div>
+                )}
 
-          <BracketColumn
-            title="Quartas A"
-            matches={leftRound2}
-            getPlayer={getPlayer}
-            liveMatchId={liveMatchId}
-            side="left"
-            className="pt-7"
-            gapClassName="gap-20"
-          />
+                <div className="flex flex-col items-center">
+                  <h3 className="mb-3 text-center text-[9px] font-semibold uppercase tracking-[0.18em] text-[#b8933b]">
+                    {getRoundLabel(round, totalRounds)}
+                  </h3>
 
-          <ConnectorColumn
-            side="right"
-            count={2}
-            className="py-14"
-            connectorHeightClassName="h-16"
-            gapClassName="gap-24"
-          />
+                  {isFinal && (
+                    <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full border border-[#6c5323]/80 bg-black/80 shadow-[0_0_24px_rgba(240,191,85,0.12)]">
+                      <Trophy className="h-7 w-7 text-[#f4d588]" />
+                    </div>
+                  )}
 
-          <BracketColumn
-            title="Semi A"
-            matches={leftSemi}
-            getPlayer={getPlayer}
-            liveMatchId={liveMatchId}
-            side="left"
-            className="pt-[4.5rem]"
-          />
-
-          <div className="flex flex-col items-center px-1">
-            <div className="mb-3 flex h-20 w-20 items-center justify-center rounded-full border border-[#6c5323]/80 bg-black/80 shadow-[0_0_24px_rgba(240,191,85,0.12)] lg:h-24 lg:w-24">
-              <div className="flex h-14 w-14 items-center justify-center rounded-full border border-[#9d7830]/60 bg-[radial-gradient(circle,rgba(247,211,127,0.2),transparent_70%)] lg:h-16 lg:w-16">
-                <Trophy className="h-8 w-8 text-[#f4d588] lg:h-9 lg:w-9" />
+                  <div
+                    className="flex flex-col justify-around"
+                    style={{ gap: `${gapPx}px` }}
+                  >
+                    {roundMatches.map((match) => (
+                      <BracketMatch
+                        key={match.id}
+                        match={match}
+                        player1={getPlayer(match.player1Id)}
+                        player2={getPlayer(match.player2Id)}
+                        isLive={match.id === liveMatchId}
+                        side={round <= Math.ceil(totalRounds / 2) ? 'left' : 'right'}
+                        isFinal={isFinal}
+                      />
+                    ))}
+                  </div>
+                </div>
               </div>
-            </div>
-            <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-[#b8933b]">
-              Final
-            </p>
-            <p className="mt-1 mb-3 text-[9px] text-muted-foreground">
-              Chave em duas pontas
-            </p>
-            {finals.map((match) => (
-              <BracketMatch
-                key={match.id}
-                match={match}
-                player1={getPlayer(match.player1Id)}
-                player2={getPlayer(match.player2Id)}
-                isLive={match.id === liveMatchId}
-                side="center"
-              />
-            ))}
-          </div>
-
-          <BracketColumn
-            title="Semi B"
-            matches={rightSemi}
-            getPlayer={getPlayer}
-            liveMatchId={liveMatchId}
-            side="right"
-            className="pt-[4.5rem]"
-          />
-
-          <ConnectorColumn
-            side="left"
-            count={2}
-            className="py-14"
-            connectorHeightClassName="h-16"
-            gapClassName="gap-24"
-          />
-
-          <BracketColumn
-            title="Quartas B"
-            matches={rightRound2}
-            getPlayer={getPlayer}
-            liveMatchId={liveMatchId}
-            side="right"
-            className="pt-7"
-            gapClassName="gap-20"
-          />
-
-          <ConnectorColumn
-            side="left"
-            count={3}
-            className="py-8"
-            connectorHeightClassName="h-12"
-            gapClassName="gap-10"
-          />
-
-          <BracketColumn
-            title="Lado B"
-            matches={rightRound1}
-            getPlayer={getPlayer}
-            liveMatchId={liveMatchId}
-            side="right"
-            gapClassName="gap-5"
-          />
+            )
+          })}
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 

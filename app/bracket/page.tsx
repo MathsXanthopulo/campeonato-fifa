@@ -21,10 +21,16 @@ export default function BracketPage() {
     )
   }
   
-  const { tournament, players, matches } = state
-  
-  const completedMatches = matches.filter(m => m.status === 'completed').length
-  const totalMatches = matches.length
+  const { tournament, players, matches, groups } = state
+
+  const isGroupsPhase =
+    tournament.mode === 'groups_knockout' && tournament.phase === 'groups'
+  const displayMatches = isGroupsPhase
+    ? matches.filter((match) => match.phase === 'groups')
+    : matches.filter((match) => match.phase === 'knockout')
+
+  const completedMatches = displayMatches.filter((m) => m.status === 'completed').length
+  const totalMatches = displayMatches.length
   const canDrawMatches = tournament.status === 'setup' && players.length >= 2
 
   const handleDrawBracket = () => {
@@ -55,12 +61,16 @@ export default function BracketPage() {
 
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <p className="text-sm text-muted-foreground">
-                Sorteie os confrontos antes de iniciar o torneio.
+                {tournament.mode === 'groups_knockout'
+                  ? isGroupsPhase
+                    ? 'Sorteie os grupos antes de iniciar. O mata-mata sera gerado automaticamente quando todas as partidas de grupos forem finalizadas.'
+                    : 'Mata-mata gerado automaticamente com base na classificacao dos grupos.'
+                  : 'Sorteie os confrontos antes de iniciar o torneio.'}
               </p>
 
               <Button onClick={handleDrawBracket} disabled={!canDrawMatches}>
                 <Shuffle className="w-4 h-4 mr-2" />
-                Sortear confrontos
+                {tournament.mode === 'groups_knockout' ? 'Sortear grupos' : 'Sortear confrontos'}
               </Button>
             </div>
 
@@ -94,11 +104,35 @@ export default function BracketPage() {
             transition={{ delay: 0.2 }}
             className="glass rounded-xl p-4 overflow-hidden"
           >
-            <Bracket 
-              matches={matches}
-              players={players}
-              liveMatchId={tournament.liveMatchId}
-            />
+            {isGroupsPhase && groups.length > 0 ? (
+              <motion.div className="space-y-6">
+                {groups.map((group) => {
+                  const groupMatches = displayMatches.filter((m) => m.groupId === group.id)
+                  return (
+                    <motion.div key={group.id} className="rounded-xl border border-border/50 p-4">
+                      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-[#b8933b]">
+                        {group.name}
+                      </h3>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        {group.playerIds.length} jogadores · {groupMatches.length} partidas (todos contra todos)
+                      </p>
+                      <ul className="space-y-1 text-sm text-muted-foreground">
+                        {group.playerIds.map((id) => {
+                          const player = players.find((p) => p.id === id)
+                          return <li key={id}>{player?.name ?? 'Jogador'}</li>
+                        })}
+                      </ul>
+                    </motion.div>
+                  )
+                })}
+              </motion.div>
+            ) : (
+              <Bracket
+                matches={displayMatches}
+                players={players}
+                liveMatchId={tournament.liveMatchId}
+              />
+            )}
           </motion.div>
           
           {/* Legend */}

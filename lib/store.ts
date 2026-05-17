@@ -1,13 +1,20 @@
 "use client"
 
-import { Player, Match, Tournament, TournamentState } from './types'
+import { formatToAppState, generateTournamentFormat } from './tournament-format'
+import { buildKnockoutFromGroupQualification } from './tournament-format/knockout'
+import {
+  areGroupMatchesComplete,
+  computeQualificationResult,
+} from './tournament-format/standings'
+import { Player, Match, Tournament, TournamentState, TournamentMode } from './types'
 
 const STORAGE_KEY = 'fc-tournament-data'
-export const MAX_PLAYERS = 14
 
 const defaultTournament: Tournament = {
   id: '1',
   name: 'Champions Tito',
+  mode: 'knockout',
+  phase: 'setup',
   championId: null,
   status: 'setup',
   liveMatchId: null,
@@ -33,130 +40,51 @@ const legacyDemoPlayers = [
 
 const defaultPlayers: Player[] = []
 
-// 14 players = 2 byes in round 1, then 8 players in round 2, 4 in semifinals, 2 in finals
-function generateBracket(players: Player[]): Match[] {
-  const matches: Match[] = []
-  
-  // Round 1: 6 matches (12 players play, 2 get byes)
-  // Positions 0-5 are round 1 matches
-  const round1Matchups = [
-    [0, 13], // 1 vs 14
-    [1, 12], // 2 vs 13
-    [2, 11], // 3 vs 12
-    [3, 10], // 4 vs 11
-    [4, 9],  // 5 vs 10
-    [5, 8],  // 6 vs 9
-  ]
-  
-  round1Matchups.forEach(([p1, p2], index) => {
-    matches.push({
-      id: `r1-${index}`,
-      player1Id: players[p1]?.id || null,
-      player2Id: players[p2]?.id || null,
-      score1: null,
-      score2: null,
-      wentToPenalties: false,
-      penaltyScore1: null,
-      penaltyScore2: null,
-      winnerId: null,
-      round: 1,
-      position: index,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-    })
-  })
-  
-  // Round 2 (Quarterfinals): 4 matches
-  // 2 players with byes (7 and 8) + 6 winners from round 1
-  for (let i = 0; i < 4; i++) {
-    matches.push({
-      id: `r2-${i}`,
-      player1Id: i === 0 ? players[6]?.id : null, // Player 7 gets bye
-      player2Id: i === 3 ? players[7]?.id : null, // Player 8 gets bye
-      score1: null,
-      score2: null,
-      wentToPenalties: false,
-      penaltyScore1: null,
-      penaltyScore2: null,
-      winnerId: null,
-      round: 2,
-      position: i,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-    })
-  }
-  
-  // Semifinals: 2 matches
-  for (let i = 0; i < 2; i++) {
-    matches.push({
-      id: `r3-${i}`,
-      player1Id: null,
-      player2Id: null,
-      score1: null,
-      score2: null,
-      wentToPenalties: false,
-      penaltyScore1: null,
-      penaltyScore2: null,
-      winnerId: null,
-      round: 3,
-      position: i,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-    })
-  }
-  
-  // Finals: 1 match
-  matches.push({
-    id: 'r4-0',
-    player1Id: null,
-    player2Id: null,
-    score1: null,
-    score2: null,
-    wentToPenalties: false,
-    penaltyScore1: null,
-    penaltyScore2: null,
-    winnerId: null,
-    round: 4,
-    position: 0,
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-  })
-  
-  return matches
-}
-
-function shufflePlayers(players: Player[]): Player[] {
-  const shuffledPlayers = [...players]
-
-  for (let index = shuffledPlayers.length - 1; index > 0; index -= 1) {
-    const randomIndex = Math.floor(Math.random() * (index + 1))
-    ;[shuffledPlayers[index], shuffledPlayers[randomIndex]] = [shuffledPlayers[randomIndex], shuffledPlayers[index]]
-  }
-
-  return shuffledPlayers
-}
-
 function hasDrawnMatches(matches: Match[]): boolean {
   return matches.some((match) => match.player1Id || match.player2Id)
 }
 
+function buildMatchesForState(players: Player[], mode: TournamentMode, shuffle = false) {
+  const format = generateTournamentFormat({ players, mode, shuffle })
+  return formatToAppState(format)
+}
+
 function createInitialState(): TournamentState {
+  const { groups, matches } = buildMatchesForState(defaultPlayers, defaultTournament.mode)
   return {
     tournament: defaultTournament,
     players: defaultPlayers,
-    matches: generateBracket(defaultPlayers),
+    groups,
+    matches,
   }
 }
 
 function normalizeState(state: TournamentState): TournamentState {
+  const mode = state.tournament.mode ?? 'knockout'
+  const phase =
+    state.tournament.phase ??
+    (state.tournament.status === 'completed'
+      ? 'completed'
+      : state.groups.length > 0 && state.matches.some((m) => m.phase === 'groups')
+        ? 'groups'
+        : 'knockout')
+
   return {
     ...state,
+    tournament: {
+      ...state.tournament,
+      mode,
+      phase,
+    },
     players: state.players.map((player) => ({
       ...player,
       team: player.team ?? '',
     })),
+    groups: state.groups ?? [],
     matches: state.matches.map((match) => ({
       ...match,
+      phase: match.phase ?? 'knockout',
+      groupId: match.groupId ?? null,
       wentToPenalties: match.wentToPenalties ?? false,
       penaltyScore1: match.penaltyScore1 ?? null,
       penaltyScore2: match.penaltyScore2 ?? null,
@@ -174,11 +102,47 @@ function isLegacyDemoState(state: TournamentState): boolean {
   )
 }
 
+function getMaxKnockoutRound(matches: Match[]): number {
+  const knockout = matches.filter((m) => m.phase === 'knockout')
+  if (knockout.length === 0) return 0
+  return Math.max(...knockout.map((m) => m.round))
+}
+
+function getPrelimFeedPosition(targetSize: number, playInCount: number, prelimIndex: number): number {
+  const firstRoundMatches = targetSize / 2
+  return firstRoundMatches - playInCount + prelimIndex
+}
+
+function advancePreliminaryWinner(
+  matches: Match[],
+  prelimMatch: Match,
+  winnerId: string
+): void {
+  const prelimIndex = Number.parseInt(prelimMatch.id.replace('ko-prelim-', ''), 10)
+  if (Number.isNaN(prelimIndex)) return
+
+  const knockoutRounds = matches.filter((m) => m.phase === 'knockout' && m.round >= 1)
+  const bracketSize = knockoutRounds.filter((m) => m.round === 1).length * 2
+  const playInCount = matches.filter((m) => m.id.startsWith('ko-prelim-')).length
+  const feedPosition = getPrelimFeedPosition(bracketSize, playInCount, prelimIndex)
+  const feedMatch = matches.find(
+    (m) => m.phase === 'knockout' && m.round === 1 && m.position === feedPosition
+  )
+
+  if (!feedMatch) return
+
+  if (!feedMatch.player1Id) {
+    feedMatch.player1Id = winnerId
+  } else if (!feedMatch.player2Id) {
+    feedMatch.player2Id = winnerId
+  }
+}
+
 export function getInitialState(): TournamentState {
   if (typeof window === 'undefined') {
     return createInitialState()
   }
-  
+
   const stored = localStorage.getItem(STORAGE_KEY)
   if (stored) {
     try {
@@ -190,14 +154,17 @@ export function getInitialState(): TournamentState {
         return freshState
       }
 
-      return parsedState
+      const resolved = maybeAdvanceToKnockout(parsedState)
+      if (resolved !== parsedState) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(resolved))
+      }
+      return resolved
     } catch {
-      // Invalid stored data, return default
+      // Invalid stored data
     }
   }
-  
+
   const state = createInitialState()
-  
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
   return state
 }
@@ -208,75 +175,90 @@ export function saveState(state: TournamentState): void {
   }
 }
 
+export function setTournamentMode(state: TournamentState, mode: TournamentMode): TournamentState {
+  if (state.tournament.status !== 'setup') {
+    return state
+  }
+
+  const { groups, matches } = buildMatchesForState(state.players, mode)
+
+  const newState: TournamentState = {
+    ...state,
+    tournament: {
+      ...state.tournament,
+      mode,
+      phase: 'setup',
+      championId: null,
+      liveMatchId: null,
+    },
+    groups,
+    matches,
+  }
+  saveState(newState)
+  return newState
+}
+
 export function updateMatch(state: TournamentState, matchId: string, updates: Partial<Match>): TournamentState {
-  const newMatches = state.matches.map(m => 
-    m.id === matchId ? { ...m, ...updates } : m
-  )
-  
-  // If match is completed, advance winner to next round
-  const updatedMatch = newMatches.find(m => m.id === matchId)
+  const newMatches = state.matches.map((m) => (m.id === matchId ? { ...m, ...updates } : m))
+
+  const updatedMatch = newMatches.find((m) => m.id === matchId)
+
   if (updatedMatch && updates.winnerId && updatedMatch.status === 'completed') {
-    const { round, position } = updatedMatch
-    
-    if (round < 4) {
-      const nextRound = round + 1
-      let nextPosition: number
-      let isPlayer1: boolean
-      
-      if (round === 1) {
-        // Round 1 winners go to round 2
-        // Match 0,1 -> R2 pos 0 (but pos 0 has bye player already)
-        // Match 2,3 -> R2 pos 1
-        // Match 4,5 -> R2 pos 2
-        // Actually need proper mapping
-        if (position === 0) { nextPosition = 0; isPlayer1 = false }
-        else if (position === 1) { nextPosition = 1; isPlayer1 = true }
-        else if (position === 2) { nextPosition = 1; isPlayer1 = false }
-        else if (position === 3) { nextPosition = 2; isPlayer1 = true }
-        else if (position === 4) { nextPosition = 2; isPlayer1 = false }
-        else { nextPosition = 3; isPlayer1 = true }
+    if (updatedMatch.phase === 'knockout') {
+      if (updatedMatch.id.startsWith('ko-prelim-')) {
+        advancePreliminaryWinner(newMatches, updatedMatch, updates.winnerId)
       } else {
-        nextPosition = Math.floor(position / 2)
-        isPlayer1 = position % 2 === 0
-      }
-      
-      const nextMatchIndex = newMatches.findIndex(
-        m => m.round === nextRound && m.position === nextPosition
-      )
-      
-      if (nextMatchIndex !== -1) {
-        if (isPlayer1) {
-          newMatches[nextMatchIndex] = {
-            ...newMatches[nextMatchIndex],
-            player1Id: updates.winnerId,
+        const maxRound = getMaxKnockoutRound(newMatches)
+        const { round, position } = updatedMatch
+
+        if (round < maxRound) {
+          const nextRound = round + 1
+          const nextPosition = Math.floor(position / 2)
+          const isPlayer1 = position % 2 === 0
+          const nextMatchIndex = newMatches.findIndex(
+            (m) =>
+              m.phase === 'knockout' &&
+              m.round === nextRound &&
+              m.position === nextPosition &&
+              !m.id.startsWith('ko-prelim-')
+          )
+
+          if (nextMatchIndex !== -1) {
+            if (isPlayer1) {
+              newMatches[nextMatchIndex] = {
+                ...newMatches[nextMatchIndex],
+                player1Id: updates.winnerId,
+              }
+            } else {
+              newMatches[nextMatchIndex] = {
+                ...newMatches[nextMatchIndex],
+                player2Id: updates.winnerId,
+              }
+            }
           }
-        } else {
-          newMatches[nextMatchIndex] = {
-            ...newMatches[nextMatchIndex],
-            player2Id: updates.winnerId,
+        }
+
+        if (round === maxRound && updates.winnerId) {
+          const newState: TournamentState = {
+            ...state,
+            tournament: {
+              ...state.tournament,
+              championId: updates.winnerId,
+              status: 'completed',
+              phase: 'completed',
+              liveMatchId:
+                state.tournament.liveMatchId === matchId ? null : state.tournament.liveMatchId,
+            },
+            matches: newMatches,
           }
+          saveState(newState)
+          return newState
         }
       }
     }
-    
-    // If finals completed, set champion
-    if (round === 4 && updates.winnerId) {
-      const newState = {
-        ...state,
-        tournament: {
-          ...state.tournament,
-          championId: updates.winnerId,
-          status: 'completed' as const,
-          liveMatchId: state.tournament.liveMatchId === matchId ? null : state.tournament.liveMatchId,
-        },
-        matches: newMatches,
-      }
-      saveState(newState)
-      return newState
-    }
   }
-  
-  const newState = {
+
+  const newState: TournamentState = {
     ...state,
     tournament: {
       ...state.tournament,
@@ -287,18 +269,97 @@ export function updateMatch(state: TournamentState, matchId: string, updates: Pa
     },
     matches: newMatches,
   }
+
+  const finalState = maybeAdvanceToKnockout(newState)
+  saveState(finalState)
+  return finalState
+}
+
+export function shouldAutoAdvanceToKnockout(state: TournamentState): boolean {
+  return (
+    state.tournament.mode === 'groups_knockout' &&
+    state.tournament.phase === 'groups' &&
+    state.groups.length > 0 &&
+    areGroupMatchesComplete(state.groups, state.matches)
+  )
+}
+
+function maybeAdvanceToKnockout(state: TournamentState): TournamentState {
+  if (!shouldAutoAdvanceToKnockout(state)) {
+    return state
+  }
+  return advanceToKnockout(state)
+}
+
+export function advanceToKnockout(state: TournamentState): TournamentState {
+  if (state.tournament.mode !== 'groups_knockout') {
+    return state
+  }
+
+  if (state.tournament.phase !== 'groups') {
+    return state
+  }
+
+  if (!areGroupMatchesComplete(state.groups, state.matches)) {
+    return state
+  }
+
+  const format = generateTournamentFormat({
+    players: state.players,
+    mode: 'groups_knockout',
+    shuffle: false,
+  })
+
+  if (!format.qualification) {
+    return state
+  }
+
+  const qualification = computeQualificationResult(
+    state.groups,
+    state.matches,
+    format.qualification
+  )
+
+  const knockoutFormat = buildKnockoutFromGroupQualification(
+    qualification.groupWinners,
+    qualification.others,
+    format.qualification.targetKnockoutSize
+  )
+
+  const { matches: knockoutMatches } = formatToAppState({
+    mode: 'knockout',
+    playerCount: qualification.all.length,
+    groups: [],
+    qualified: qualification.all,
+    qualification: format.qualification,
+    knockout: knockoutFormat,
+  })
+
+  const groupMatches = state.matches.filter((m) => m.phase === 'groups')
+
+  const newState: TournamentState = {
+    ...state,
+    tournament: {
+      ...state.tournament,
+      phase: 'knockout',
+    },
+    matches: [...groupMatches, ...knockoutMatches],
+  }
   saveState(newState)
   return newState
 }
 
 export function setLiveMatch(state: TournamentState, matchId: string | null): TournamentState {
-  // Set previous live match to pending if exists
-  const newMatches = state.matches.map(m => ({
+  const newMatches = state.matches.map((m) => ({
     ...m,
-    status: m.id === matchId ? 'live' as const : 
-            (m.status === 'live' ? 'pending' as const : m.status)
+    status:
+      m.id === matchId
+        ? ('live' as const)
+        : m.status === 'live'
+          ? ('pending' as const)
+          : m.status,
   }))
-  
+
   const newState = {
     ...state,
     tournament: {
@@ -312,19 +373,23 @@ export function setLiveMatch(state: TournamentState, matchId: string | null): To
 }
 
 export function addPlayer(state: TournamentState, player: Omit<Player, 'id' | 'createdAt'>): TournamentState {
-  if (state.players.length >= MAX_PLAYERS) {
-    return state
-  }
-
   const newPlayer: Player = {
     ...player,
     id: Date.now().toString(),
     createdAt: new Date().toISOString(),
   }
-  
-  const newState = {
+
+  const newPlayers = [...state.players, newPlayer]
+  const built =
+    state.tournament.status === 'setup'
+      ? buildMatchesForState(newPlayers, state.tournament.mode)
+      : null
+
+  const newState: TournamentState = {
     ...state,
-    players: [...state.players, newPlayer],
+    players: newPlayers,
+    groups: built?.groups ?? state.groups,
+    matches: built?.matches ?? state.matches,
   }
   saveState(newState)
   return newState
@@ -333,18 +398,20 @@ export function addPlayer(state: TournamentState, player: Omit<Player, 'id' | 'c
 export function updatePlayer(state: TournamentState, playerId: string, updates: Partial<Player>): TournamentState {
   const newState = {
     ...state,
-    players: state.players.map(p => 
-      p.id === playerId ? { ...p, ...updates } : p
-    ),
+    players: state.players.map((p) => (p.id === playerId ? { ...p, ...updates } : p)),
   }
   saveState(newState)
   return newState
 }
 
 export function deletePlayer(state: TournamentState, playerId: string): TournamentState {
-  const newPlayers = state.players.filter(p => p.id !== playerId)
+  const newPlayers = state.players.filter((p) => p.id !== playerId)
+  const built =
+    state.tournament.status === 'setup'
+      ? buildMatchesForState(newPlayers, state.tournament.mode)
+      : null
 
-  const newState = {
+  const newState: TournamentState = {
     ...state,
     tournament: {
       ...state.tournament,
@@ -352,22 +419,26 @@ export function deletePlayer(state: TournamentState, playerId: string): Tourname
       liveMatchId: state.tournament.status === 'setup' ? null : state.tournament.liveMatchId,
     },
     players: newPlayers,
-    matches: state.tournament.status === 'setup' ? generateBracket(newPlayers) : state.matches,
+    groups: built?.groups ?? state.groups,
+    matches: built?.matches ?? state.matches,
   }
   saveState(newState)
   return newState
 }
 
 export function resetTournament(state: TournamentState): TournamentState {
-  const newState = {
+  const { groups, matches } = buildMatchesForState(state.players, state.tournament.mode)
+  const newState: TournamentState = {
     tournament: {
       ...state.tournament,
       championId: null,
-      status: 'setup' as const,
+      status: 'setup',
+      phase: 'setup',
       liveMatchId: null,
     },
     players: state.players,
-    matches: generateBracket(state.players),
+    groups,
+    matches,
   }
   saveState(newState)
   return newState
@@ -378,16 +449,18 @@ export function drawBracket(state: TournamentState): TournamentState {
     return state
   }
 
-  const shuffledPlayers = shufflePlayers(state.players)
+  const { groups, matches } = buildMatchesForState(state.players, state.tournament.mode, true)
 
-  const newState = {
+  const newState: TournamentState = {
     ...state,
     tournament: {
       ...state.tournament,
       championId: null,
       liveMatchId: null,
+      phase: state.tournament.mode === 'groups_knockout' ? 'groups' : 'knockout',
     },
-    matches: generateBracket(shuffledPlayers),
+    groups,
+    matches,
   }
 
   saveState(newState)
@@ -399,13 +472,23 @@ export function startTournament(state: TournamentState): TournamentState {
     return state
   }
 
-  const newState = {
+  const hasMatches = hasDrawnMatches(state.matches)
+  const built = hasMatches ? null : buildMatchesForState(state.players, state.tournament.mode)
+
+  const newState: TournamentState = {
     ...state,
     tournament: {
       ...state.tournament,
-      status: 'active' as const,
+      status: 'active',
+      phase:
+        state.tournament.mode === 'groups_knockout' && !hasMatches
+          ? 'groups'
+          : state.tournament.mode === 'groups_knockout'
+            ? 'groups'
+            : 'knockout',
     },
-    matches: hasDrawnMatches(state.matches) ? state.matches : generateBracket(state.players),
+    groups: built?.groups ?? state.groups,
+    matches: built?.matches ?? state.matches,
   }
   saveState(newState)
   return newState
@@ -417,7 +500,8 @@ export function setChampion(state: TournamentState, playerId: string | null): To
     tournament: {
       ...state.tournament,
       championId: playerId,
-      status: playerId ? 'completed' as const : state.tournament.status,
+      status: playerId ? ('completed' as const) : state.tournament.status,
+      phase: playerId ? ('completed' as const) : state.tournament.phase,
     },
   }
   saveState(newState)

@@ -4,16 +4,27 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
-import { Home, Trophy, List } from 'lucide-react'
+import { Home, Trophy, List, LayoutGrid } from 'lucide-react'
+import { useTournament } from '@/lib/tournament-context'
 
-const navItems = [
+const baseNavItems = [
   { href: '/', label: 'Início', icon: Home },
-  { href: '/bracket', label: 'Chaveamento', icon: Trophy },
+  { href: '/groups', label: 'Grupos', icon: LayoutGrid, requiresGroups: true },
+  { href: '/bracket', label: 'Chave', icon: Trophy },
   { href: '/admin', label: 'Partidas', icon: List },
 ]
 
 export function Navigation() {
   const pathname = usePathname()
+  const { state } = useTournament()
+
+  const showGroups =
+    state &&
+    (state.tournament.mode === 'groups_knockout' || state.groups.length > 0)
+
+  const navItems = baseNavItems.filter(
+    (item) => !item.requiresGroups || showGroups
+  )
   
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 md:top-0 md:bottom-auto">

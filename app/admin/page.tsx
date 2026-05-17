@@ -1,292 +1,94 @@
-"use client"
+'use client'
 
-import { FormEvent, useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useTournament } from '@/lib/tournament-context'
-import { Match, Player } from '@/lib/types'
+import { Match } from '@/lib/types'
 import { Loading } from '@/components/tournament/loading'
+import { MatchPanelCard } from '@/components/tournament/match-panel-card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from '@/components/ui/accordion'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { Home, List, PencilLine, Trophy } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { Home, List, Trophy } from 'lucide-react'
+import { getMaxRound, getRoundLabel } from '@/lib/bracket'
+import { getKnockoutRoundLabel } from '@/lib/tournament-format/knockout'
 
-const roundNames = ['Rodada 1', 'Quartas de Final', 'Semifinal', 'Final']
+type MatchFilter = 'all' | 'pending' | 'completed'
 
-function getMatchStatusLabel(status: 'pending' | 'live' | 'completed') {
-  if (status === 'completed') return 'Finalizada'
-  if (status === 'live') return 'Ao vivo'
-  return 'Aguardando'
+function filterMatches(matches: Match[], filter: MatchFilter) {
+  if (filter === 'pending') return matches.filter((m) => m.status !== 'completed')
+  if (filter === 'completed') return matches.filter((m) => m.status === 'completed')
+  return matches
 }
 
-function getScoreLabel(match: Match) {
-  if (match.score1 === null || match.score2 === null) {
-    return '-'
-  }
-
-  if (match.wentToPenalties && match.penaltyScore1 !== null && match.penaltyScore2 !== null) {
-    return `${match.score1} x ${match.score2} (pen. ${match.penaltyScore1} x ${match.penaltyScore2})`
-  }
-
-  return `${match.score1} x ${match.score2}`
-}
-
-interface MatchResultDialogProps {
-  match: Match
-  player1?: Player
-  player2?: Player
-  onSave: (matchId: string, updates: Partial<Match>) => void
-}
-
-function MatchResultDialog({ match, player1, player2, onSave }: MatchResultDialogProps) {
-  const [open, setOpen] = useState(false)
-  const [score1, setScore1] = useState('')
-  const [score2, setScore2] = useState('')
-  const [hadPenalties, setHadPenalties] = useState(false)
-  const [penaltyScore1, setPenaltyScore1] = useState('')
-  const [penaltyScore2, setPenaltyScore2] = useState('')
-  const [errorMessage, setErrorMessage] = useState('')
-
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    setScore1(match.score1?.toString() ?? '')
-    setScore2(match.score2?.toString() ?? '')
-    setHadPenalties(match.wentToPenalties)
-    setPenaltyScore1(match.penaltyScore1?.toString() ?? '')
-    setPenaltyScore2(match.penaltyScore2?.toString() ?? '')
-    setErrorMessage('')
-  }, [match, open])
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-
-    if (!player1 || !player2) {
-      setErrorMessage('Essa partida ainda nao possui os dois jogadores definidos.')
-      return
-    }
-
-    if (score1 === '' || score2 === '') {
-      setErrorMessage('Preencha o placar dos dois jogadores.')
-      return
-    }
-
-    const parsedScore1 = Number(score1)
-    const parsedScore2 = Number(score2)
-
-    if (Number.isNaN(parsedScore1) || Number.isNaN(parsedScore2) || parsedScore1 < 0 || parsedScore2 < 0) {
-      setErrorMessage('Informe um placar valido.')
-      return
-    }
-
-    if (hadPenalties) {
-      if (parsedScore1 !== parsedScore2) {
-        setErrorMessage('Para marcar penaltis, o placar do jogo precisa terminar empatado.')
-        return
-      }
-
-      if (penaltyScore1 === '' || penaltyScore2 === '') {
-        setErrorMessage('Preencha o placar dos penaltis.')
-        return
-      }
-
-      const parsedPenalty1 = Number(penaltyScore1)
-      const parsedPenalty2 = Number(penaltyScore2)
-
-      if (
-        Number.isNaN(parsedPenalty1) ||
-        Number.isNaN(parsedPenalty2) ||
-        parsedPenalty1 < 0 ||
-        parsedPenalty2 < 0
-      ) {
-        setErrorMessage('Informe um placar de penaltis valido.')
-        return
-      }
-
-      if (parsedPenalty1 === parsedPenalty2) {
-        setErrorMessage('Nos penaltis precisa existir um vencedor.')
-        return
-      }
-
-      onSave(match.id, {
-        score1: parsedScore1,
-        score2: parsedScore2,
-        wentToPenalties: true,
-        penaltyScore1: parsedPenalty1,
-        penaltyScore2: parsedPenalty2,
-        winnerId: parsedPenalty1 > parsedPenalty2 ? player1.id : player2.id,
-        status: 'completed',
-      })
-
-      setOpen(false)
-      return
-    }
-
-    if (parsedScore1 === parsedScore2) {
-      setErrorMessage('Em mata-mata nao pode terminar empatado sem penaltis.')
-      return
-    }
-
-    onSave(match.id, {
-      score1: parsedScore1,
-      score2: parsedScore2,
-      wentToPenalties: false,
-      penaltyScore1: null,
-      penaltyScore2: null,
-      winnerId: parsedScore1 > parsedScore2 ? player1.id : player2.id,
-      status: 'completed',
-    })
-
-    setOpen(false)
-  }
+function SectionProgress({ matches }: { matches: Match[] }) {
+  const total = matches.length
+  const done = matches.filter((m) => m.status === 'completed').length
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant={match.status === 'completed' ? 'outline' : 'default'} disabled={!player1 || !player2}>
-          <PencilLine className="w-4 h-4 mr-2" />
-          {match.status === 'completed' ? 'Editar placar' : 'Lancar placar'}
-        </Button>
-      </DialogTrigger>
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>{done} de {total} finalizadas</span>
+        <span>{pct}%</span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-black/40">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-[#d8a844] to-[#f7d37f] transition-all duration-500"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  )
+}
 
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Resultado da partida</DialogTitle>
-          <DialogDescription>
-            Registre o placar entre {player1?.name || 'Jogador 1'} e {player2?.name || 'Jogador 2'}.
-          </DialogDescription>
-        </DialogHeader>
+function FilterTabs({
+  value,
+  onChange,
+  counts,
+}: {
+  value: MatchFilter
+  onChange: (v: MatchFilter) => void
+  counts: { all: number; pending: number; completed: number }
+}) {
+  const tabs: { id: MatchFilter; label: string; count: number }[] = [
+    { id: 'all', label: 'Todas', count: counts.all },
+    { id: 'pending', label: 'Pendentes', count: counts.pending },
+    { id: 'completed', label: 'Finalizadas', count: counts.completed },
+  ]
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor={`score1-${match.id}`}>{player1?.name || 'Jogador 1'}</Label>
-              <Input
-                id={`score1-${match.id}`}
-                type="number"
-                min={0}
-                value={score1}
-                onChange={(event) => setScore1(event.target.value)}
-                placeholder="0"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor={`score2-${match.id}`}>{player2?.name || 'Jogador 2'}</Label>
-              <Input
-                id={`score2-${match.id}`}
-                type="number"
-                min={0}
-                value={score2}
-                onChange={(event) => setScore2(event.target.value)}
-                placeholder="0"
-              />
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-border/60 p-4">
-            <div className="flex items-center gap-3">
-              <Checkbox
-                id={`penalties-${match.id}`}
-                checked={hadPenalties}
-                onCheckedChange={(checked) => {
-                  const nextValue = checked === true
-                  setHadPenalties(nextValue)
-
-                  if (!nextValue) {
-                    setPenaltyScore1('')
-                    setPenaltyScore2('')
-                  }
-                }}
-              />
-              <Label htmlFor={`penalties-${match.id}`} className="cursor-pointer">
-                Teve penaltis?
-              </Label>
-            </div>
-
-            {hadPenalties && (
-              <Accordion type="single" collapsible defaultValue="penalties" className="mt-3">
-                <AccordionItem value="penalties" className="border-b-0">
-                  <AccordionTrigger className="py-2">
-                    Informar gols nos penaltis
-                  </AccordionTrigger>
-                  <AccordionContent className="pt-2">
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor={`penalty-score1-${match.id}`}>
-                          Penaltis de {player1?.name || 'Jogador 1'}
-                        </Label>
-                        <Input
-                          id={`penalty-score1-${match.id}`}
-                          type="number"
-                          min={0}
-                          value={penaltyScore1}
-                          onChange={(event) => setPenaltyScore1(event.target.value)}
-                          placeholder="0"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor={`penalty-score2-${match.id}`}>
-                          Penaltis de {player2?.name || 'Jogador 2'}
-                        </Label>
-                        <Input
-                          id={`penalty-score2-${match.id}`}
-                          type="number"
-                          min={0}
-                          value={penaltyScore2}
-                          onChange={(event) => setPenaltyScore2(event.target.value)}
-                          placeholder="0"
-                        />
-                      </div>
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            )}
-          </div>
-
-          {errorMessage && (
-            <p className="text-sm text-destructive">{errorMessage}</p>
+  return (
+    <div className="flex flex-wrap gap-2">
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          onClick={() => onChange(tab.id)}
+          className={cn(
+            'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+            value === tab.id
+              ? 'border-[#d8a844] bg-[#d8a844]/15 text-[#f7d37f]'
+              : 'border-border/60 text-muted-foreground hover:border-[#b8933b]/50 hover:text-foreground'
           )}
-
-          <DialogFooter>
-            <Button type="submit">Salvar resultado</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+        >
+          {tab.label}
+          <span className="ml-1.5 tabular-nums opacity-70">({tab.count})</span>
+        </button>
+      ))}
+    </div>
   )
 }
 
 export default function MatchesPanelPage() {
   const { state, isLoading, getPlayer, updateMatch } = useTournament()
+  const [filter, setFilter] = useState<MatchFilter>('all')
+
+  const counts = useMemo(() => {
+    if (!state) return { all: 0, pending: 0, completed: 0 }
+    const all = state.matches.length
+    const completed = state.matches.filter((m) => m.status === 'completed').length
+    return { all, pending: all - completed, completed }
+  }, [state])
 
   if (isLoading || !state) {
     return (
@@ -296,9 +98,27 @@ export default function MatchesPanelPage() {
     )
   }
 
-  const { tournament, matches } = state
-  const completedMatches = matches.filter((match) => match.status === 'completed').length
+  const { tournament, matches, groups } = state
+  const groupMatches = matches.filter((match) => match.phase === 'groups')
+  const knockoutMatches = matches.filter((match) => match.phase === 'knockout')
+  const totalKnockoutRounds = getMaxRound(knockoutMatches)
   const liveMatches = matches.filter((match) => match.status === 'live').length
+  const overallPct =
+    matches.length > 0
+      ? Math.round((counts.completed / matches.length) * 100)
+      : 0
+
+  const groupsPhaseComplete =
+    tournament.mode === 'groups_knockout' &&
+    tournament.phase === 'knockout' &&
+    groups.length > 0
+
+  const groupsInProgress =
+    tournament.mode === 'groups_knockout' &&
+    tournament.phase === 'groups' &&
+    groups.length > 0
+
+  const pendingGroupMatches = groupMatches.filter((m) => m.status !== 'completed').length
 
   const handleSaveMatchResult = (matchId: string, updates: Partial<Match>) => {
     updateMatch(matchId, updates)
@@ -319,7 +139,7 @@ export default function MatchesPanelPage() {
             <div>
               <h1 className="text-2xl font-bold">Painel de Partidas</h1>
               <p className="text-sm text-muted-foreground">
-                Veja os confrontos e acompanhe os jogos que ja aconteceram.
+                Lance placares e acompanhe o status de cada confronto.
               </p>
             </div>
           </div>
@@ -335,95 +155,176 @@ export default function MatchesPanelPage() {
         <motion.section
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="grid grid-cols-1 gap-4 md:grid-cols-3"
+          transition={{ delay: 0.05 }}
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
         >
           <div className="glass rounded-xl p-5">
-            <p className="text-sm text-muted-foreground">Status do torneio</p>
-            <p className="mt-2 text-xl font-semibold">
-              {tournament.status === 'setup' && 'Em preparacao'}
+            <p className="text-sm text-muted-foreground">Torneio</p>
+            <p className="mt-2 text-lg font-semibold">
+              {tournament.status === 'setup' && 'Em preparação'}
               {tournament.status === 'active' && 'Em andamento'}
               {tournament.status === 'completed' && 'Finalizado'}
             </p>
           </div>
 
-          <div className="glass rounded-xl p-5">
-            <p className="text-sm text-muted-foreground">Partidas finalizadas</p>
-            <p className="mt-2 text-xl font-semibold">{completedMatches}</p>
+          <div className="glass rounded-xl p-5 sm:col-span-2">
+            <p className="text-sm text-muted-foreground">Progresso geral</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums">
+              {counts.completed}/{counts.all} partidas
+            </p>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/40">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-green-600 to-green-400 transition-all duration-500"
+                style={{ width: `${overallPct}%` }}
+              />
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">{overallPct}% concluído</p>
           </div>
 
           <div className="glass rounded-xl p-5">
-            <p className="text-sm text-muted-foreground">Partidas ao vivo</p>
-            <p className="mt-2 text-xl font-semibold">{liveMatches}</p>
+            <p className="text-sm text-muted-foreground">Ao vivo</p>
+            <p className="mt-2 text-lg font-semibold tabular-nums">{liveMatches}</p>
           </div>
         </motion.section>
+
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.1 }}
+          className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <FilterTabs value={filter} onChange={setFilter} counts={counts} />
+        </motion.div>
+
+        {groupsPhaseComplete && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass rounded-xl p-5 border border-green-500/30 bg-green-500/5"
+          >
+            <p className="font-semibold text-green-400">Mata-mata iniciado automaticamente</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Todas as partidas de grupos foram finalizadas. O chaveamento foi gerado com base na
+              classificação.
+            </p>
+            <Link href="/bracket" className="inline-block mt-3">
+              <Button size="sm" variant="outline">
+                Ver chaveamento
+              </Button>
+            </Link>
+          </motion.div>
+        )}
+
+        {groupsInProgress && pendingGroupMatches > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass rounded-xl p-5 border border-[#d8a844]/20"
+          >
+            <p className="font-semibold">Fase de grupos em andamento</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Faltam {pendingGroupMatches} partida{pendingGroupMatches === 1 ? '' : 's'} para
+              iniciar o mata-mata automaticamente.
+            </p>
+          </motion.div>
+        )}
 
         <motion.section
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="space-y-4"
+          transition={{ delay: 0.15 }}
+          className="space-y-8"
         >
-          {roundNames.map((roundName, index) => {
+          {groups.map((group) => {
+            const roundMatches = filterMatches(
+              groupMatches
+                .filter((match) => match.groupId === group.id)
+                .sort((a, b) => a.position - b.position),
+              filter
+            )
+
+            if (roundMatches.length === 0) return null
+
+            const allInGroup = groupMatches.filter((m) => m.groupId === group.id)
+
+            return (
+              <motion.section key={group.id} className="glass rounded-2xl p-6 space-y-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="flex items-center gap-2">
+                    <Trophy className="w-5 h-5 text-neon-purple" />
+                    <h2 className="text-lg font-bold">{group.name}</h2>
+                  </div>
+                  <div className="w-full sm:max-w-xs">
+                    <SectionProgress matches={allInGroup} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {roundMatches.map((match) => (
+                    <MatchPanelCard
+                      key={match.id}
+                      match={match}
+                      player1={getPlayer(match.player1Id)}
+                      player2={getPlayer(match.player2Id)}
+                      onSave={handleSaveMatchResult}
+                    />
+                  ))}
+                </div>
+              </motion.section>
+            )
+          })}
+
+          {Array.from({ length: totalKnockoutRounds }, (_, index) => {
             const round = index + 1
-            const roundMatches = matches
+            const allRoundMatches = knockoutMatches
               .filter((match) => match.round === round)
               .sort((a, b) => a.position - b.position)
 
+            const roundMatches = filterMatches(allRoundMatches, filter)
+
+            if (roundMatches.length === 0) return null
+
+            const prelimCount = knockoutMatches.filter((m) => m.id.startsWith('ko-prelim-')).length
+            const roundTitle =
+              prelimCount > 0 && round === 1
+                ? getKnockoutRoundLabel('preliminary')
+                : getRoundLabel(round, totalKnockoutRounds)
+
             return (
-              <div key={round} className="glass rounded-xl p-6">
-                <div className="mb-4 flex items-center gap-2">
-                  <Trophy className={`w-5 h-5 ${round === 4 ? 'text-gold' : 'text-neon-purple'}`} />
-                  <h2 className="text-lg font-bold">{roundName}</h2>
+              <motion.section key={`ko-${round}`} className="glass rounded-2xl p-6 space-y-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="flex items-center gap-2">
+                    <Trophy
+                      className={`w-5 h-5 ${round === totalKnockoutRounds ? 'text-gold' : 'text-neon-purple'}`}
+                    />
+                    <h2 className="text-lg font-bold">{roundTitle}</h2>
+                  </div>
+                  <div className="w-full sm:max-w-xs">
+                    <SectionProgress matches={allRoundMatches} />
+                  </div>
                 </div>
 
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Jogador 1</TableHead>
-                      <TableHead>Placar</TableHead>
-                      <TableHead>Jogador 2</TableHead>
-                      <TableHead>Resultado</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {roundMatches.map((match) => {
-                      const player1 = getPlayer(match.player1Id)
-                      const player2 = getPlayer(match.player2Id)
-
-                      return (
-                        <TableRow key={match.id}>
-                          <TableCell className="font-medium">
-                            {player1?.name || 'A definir'}
-                          </TableCell>
-                          <TableCell>
-                            <div className="space-y-1">
-                              <p>{getScoreLabel(match)}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {getMatchStatusLabel(match.status)}
-                              </p>
-                            </div>
-                          </TableCell>
-                          <TableCell className="font-medium">
-                            {player2?.name || 'A definir'}
-                          </TableCell>
-                          <TableCell>
-                            <MatchResultDialog
-                              match={match}
-                              player1={player1}
-                              player2={player2}
-                              onSave={handleSaveMatchResult}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {roundMatches.map((match) => (
+                    <MatchPanelCard
+                      key={match.id}
+                      match={match}
+                      player1={getPlayer(match.player1Id)}
+                      player2={getPlayer(match.player2Id)}
+                      onSave={handleSaveMatchResult}
+                    />
+                  ))}
+                </div>
+              </motion.section>
             )
           })}
         </motion.section>
+
+        {filter !== 'all' && counts[filter === 'pending' ? 'pending' : 'completed'] === 0 && (
+          <p className="text-center text-sm text-muted-foreground py-8">
+            Nenhuma partida neste filtro.
+          </p>
+        )}
       </div>
     </main>
   )

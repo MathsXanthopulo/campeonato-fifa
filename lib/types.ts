@@ -7,6 +7,10 @@ export interface Player {
   createdAt: string
 }
 
+export type TournamentMode = 'knockout' | 'groups_knockout'
+export type TournamentPhase = 'setup' | 'groups' | 'knockout' | 'completed'
+export type MatchPhase = 'groups' | 'knockout'
+
 export interface Match {
   id: string
   player1Id: string | null
@@ -20,12 +24,22 @@ export interface Match {
   round: number
   position: number
   status: 'pending' | 'live' | 'completed'
+  phase: MatchPhase
+  groupId: string | null
   createdAt: string
+}
+
+export interface TournamentGroup {
+  id: string
+  name: string
+  playerIds: string[]
 }
 
 export interface Tournament {
   id: string
   name: string
+  mode: TournamentMode
+  phase: TournamentPhase
   championId: string | null
   status: 'setup' | 'active' | 'completed'
   liveMatchId: string | null
@@ -35,5 +49,6 @@ export interface Tournament {
 export interface TournamentState {
   tournament: Tournament
   players: Player[]
+  groups: TournamentGroup[]
   matches: Match[]
 }

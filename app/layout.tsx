@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: 'Champions Tito | Torneio FIFA',
-  description: 'Torneio 1v1 Ultimate Team com 14 jogadores. Experiencia esports imersiva.',
+  description: 'Torneio 1v1 Ultimate Team com chaveamento dinamico. Experiencia esports imersiva.',
   generator: 'v0.app',
   icons: {
     icon: [
